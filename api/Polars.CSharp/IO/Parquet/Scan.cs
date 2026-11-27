@@ -31,6 +31,10 @@ public partial class LazyFrame : IDisposable
     /// Whether to try parsing dates in Hive partitioning paths (default: false).
     /// </param>
     /// <param name="cloudOptions">Options for cloud storage (AWS S3, Azure Blob, GCS, etc.).</param>
+    /// <param name="ignoreExtraColumns">Leave out the columns of a file that the schema does not name, instead of raising.</param>
+    /// <param name="castOptions">The casts allowed when a file's types differ from the schema (default: none, a mismatch raises).</param>
+    /// <param name="hiddenFilePrefixes">Skip the files whose names begin with one of these prefixes (unstable in the engine).</param>
+    /// <param name="decryption">The keys of files written with Parquet modular encryption (experimental).</param>
     public static LazyFrame ScanParquet(
         string path,
         ulong? nRows = null,
@@ -48,8 +52,13 @@ public partial class LazyFrame : IDisposable
         bool hivePartitioning = false,
         IntoSchema? hivePartitionSchema = null,
         bool tryParseHiveDates = false,
-        CloudOptions? cloudOptions = null)
+        CloudOptions? cloudOptions = null,
+        bool ignoreExtraColumns = false,
+        ScanCastOptions? castOptions = null,
+        string[]? hiddenFilePrefixes = null,
+        ParquetDecryption? decryption = null)
     {
+        using var extras = ParquetNativeOptions.Scan(ignoreExtraColumns, castOptions, hiddenFilePrefixes, decryption);
         var schemaHandle = schema?.Consume().Handle;
         var hiveSchemaHandle = hivePartitionSchema?.Consume().Handle;
 
@@ -79,7 +88,8 @@ public partial class LazyFrame : IDisposable
             retryMaxBackoffMs,
             cacheTtl,
             keys,
-            values
+            values,
+            extras
             );
 
         return new LazyFrame(h);
@@ -103,8 +113,11 @@ public partial class LazyFrame : IDisposable
         IntoSchema? schema = null,
         bool hivePartitioning = false,
         IntoSchema? hivePartitionSchema = null,
-        bool tryParseHiveDates = false)
-        => ScanParquetCore(NativeBytes.Copy(buffer), nRows, parallel, lowMemory, useStatistics, allowMissingColumns, rechunk, cache, rowIndexName, rowIndexOffset, includePathColumn, schema, hivePartitioning, hivePartitionSchema, tryParseHiveDates);
+        bool tryParseHiveDates = false,
+        bool ignoreExtraColumns = false,
+        ScanCastOptions? castOptions = null,
+        ParquetDecryption? decryption = null)
+        => ScanParquetCore(NativeBytes.Copy(buffer), nRows, parallel, lowMemory, useStatistics, allowMissingColumns, rechunk, cache, rowIndexName, rowIndexOffset, includePathColumn, schema, hivePartitioning, hivePartitionSchema, tryParseHiveDates, ignoreExtraColumns, castOptions, decryption);
 
     /// <summary>
     /// Lazily read parquet from an in-memory byte array.
@@ -125,8 +138,11 @@ public partial class LazyFrame : IDisposable
         IntoSchema? schema = null,
         bool hivePartitioning = false,
         IntoSchema? hivePartitionSchema = null,
-        bool tryParseHiveDates = false)
-        => ScanParquetCore(NativeBytes.Copy(buffer), nRows, parallel, lowMemory, useStatistics, allowMissingColumns, rechunk, cache, rowIndexName, rowIndexOffset, includePathColumn, schema, hivePartitioning, hivePartitionSchema, tryParseHiveDates);
+        bool tryParseHiveDates = false,
+        bool ignoreExtraColumns = false,
+        ScanCastOptions? castOptions = null,
+        ParquetDecryption? decryption = null)
+        => ScanParquetCore(NativeBytes.Copy(buffer), nRows, parallel, lowMemory, useStatistics, allowMissingColumns, rechunk, cache, rowIndexName, rowIndexOffset, includePathColumn, schema, hivePartitioning, hivePartitionSchema, tryParseHiveDates, ignoreExtraColumns, castOptions, decryption);
 
     /// <summary>
     /// Lazily read parquet from an in-memory byte array.
@@ -147,8 +163,11 @@ public partial class LazyFrame : IDisposable
         IntoSchema? schema = null,
         bool hivePartitioning = false,
         IntoSchema? hivePartitionSchema = null,
-        bool tryParseHiveDates = false)
-        => ScanParquetCore(NativeBytes.Share(buffer), nRows, parallel, lowMemory, useStatistics, allowMissingColumns, rechunk, cache, rowIndexName, rowIndexOffset, includePathColumn, schema, hivePartitioning, hivePartitionSchema, tryParseHiveDates);
+        bool tryParseHiveDates = false,
+        bool ignoreExtraColumns = false,
+        ScanCastOptions? castOptions = null,
+        ParquetDecryption? decryption = null)
+        => ScanParquetCore(NativeBytes.Share(buffer), nRows, parallel, lowMemory, useStatistics, allowMissingColumns, rechunk, cache, rowIndexName, rowIndexOffset, includePathColumn, schema, hivePartitioning, hivePartitionSchema, tryParseHiveDates, ignoreExtraColumns, castOptions, decryption);
 
     private static LazyFrame ScanParquetCore(
         NativeBytes buffer,
@@ -165,8 +184,12 @@ public partial class LazyFrame : IDisposable
         IntoSchema? schema,
         bool hivePartitioning,
         IntoSchema? hivePartitionSchema,
-        bool tryParseHiveDates)
+        bool tryParseHiveDates,
+        bool ignoreExtraColumns,
+        ScanCastOptions? castOptions,
+        ParquetDecryption? decryption)
     {
+        using var extras = ParquetNativeOptions.Scan(ignoreExtraColumns, castOptions, null, decryption);
         var schemaHandle = schema?.Consume().Handle;
         var hiveSchemaHandle = hivePartitionSchema?.Consume().Handle;
 
@@ -186,7 +209,8 @@ public partial class LazyFrame : IDisposable
             schemaHandle,
             hivePartitioning,
             hiveSchemaHandle,
-            tryParseHiveDates
+            tryParseHiveDates,
+            extras
         );
 
         return new LazyFrame(h);

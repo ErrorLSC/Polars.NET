@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.IO.Hashing;
 using Kaminari.Sazanami.Filters;
+using Kaminari.Seseragi.Files.Parquet.Encryption;
 using Kaminari.Seseragi.Files.Parquet.Metadata;
 
 namespace Kaminari.Seseragi.Files.Parquet;
@@ -57,9 +58,53 @@ internal sealed class BloomFilters(ParquetFile file)
             for (; i < j; i++)
             {
                 var (at, length, key) = wanted[i];
-                _filters.TryAdd(key, await ParseAsync(bytes.AsMemory((int)(at - start), length), at, useAsync, ct).ConfigureAwait(false));
+                _filters.TryAdd(key, await LoadAsync(key, bytes.AsMemory((int)(at - start), length), at, useAsync, ct).ConfigureAwait(false));
             }
         }
+    }
+
+    /// <summary>The filter of a chunk from the bytes read at its offset: in plain, or (an encrypted chunk) as two modules.</summary>
+    private async ValueTask<SplitBlockBloomFilter?> LoadAsync((int Group, int Leaf) key, ReadOnlyMemory<byte> bytes, long offset, bool useAsync, CancellationToken ct)
+    {
+        if (file.Decryptor is not { } decryptor) return await ParseAsync(bytes, offset, useAsync, ct).ConfigureAwait(false);
+        RowGroup group = file.Thrift.RowGroups[key.Group];
+        using ColumnDecryptor? crypto = decryptor.TryForChunk(group.Columns[key.Leaf], group.Ordinal ?? key.Group, key.Leaf, out bool missing);
+        if (missing) return null; // without the chunk's key its filter rules nothing out
+        if (crypto is null) return await ParseAsync(bytes, offset, useAsync, ct).ConfigureAwait(false);
+        try
+        {
+            byte[] headerModule = await ModuleAtAsync(bytes, offset, useAsync, ct).ConfigureAwait(false);
+            BloomFilterHeader header = BloomFilterHeader.Parse(crypto.Decrypt(ParquetModule.BloomFilterHeader, -1, headerModule), out _);
+            if (header.Algorithm != 1 || header.Hash != 1 || header.Compression != 1) return null;
+            int n = header.NumBytes;
+            if (n <= 0 || n > MaxBytes || n % SplitBlockBloomFilter.BlockBytes != 0) return null;
+            long bitsetAt = offset + headerModule.Length;
+            ReadOnlyMemory<byte> rest = bytes.Length > headerModule.Length ? bytes[headerModule.Length..] : ReadOnlyMemory<byte>.Empty;
+            byte[] bitset = crypto.Decrypt(ParquetModule.BloomFilterBitset, -1, await ModuleAtAsync(rest, bitsetAt, useAsync, ct).ConfigureAwait(false));
+            return bitset.Length == n ? new SplitBlockBloomFilter(bitset) : null;
+        }
+        catch (ParquetFormatException)
+        {
+            return null; // a damaged filter is no filter
+        }
+    }
+
+    /// <summary>The encrypted module at <paramref name="offset"/> (its length first), from <paramref name="bytes"/> read there when they hold it.</summary>
+    private async ValueTask<byte[]> ModuleAtAsync(ReadOnlyMemory<byte> bytes, long offset, bool useAsync, CancellationToken ct)
+    {
+        long available = file.Source.Length - offset;
+        if (bytes.Length < 4)
+        {
+            if (available < 4) throw new ParquetFormatException("An encrypted Bloom filter runs past the end of the file.");
+            byte[] start = new byte[4];
+            await ParquetFile.ReadExactlyAsync(file.Source, offset, start, useAsync, ct).ConfigureAwait(false);
+            bytes = start;
+        }
+        int stored = ModuleCipher.StoredLength(bytes.Span, Math.Min(available, MaxBytes + 1024), "a Bloom filter");
+        if (bytes.Length >= stored) return bytes[..stored].ToArray();
+        byte[] module = new byte[stored];
+        await ParquetFile.ReadExactlyAsync(file.Source, offset, module, useAsync, ct).ConfigureAwait(false);
+        return module;
     }
 
     /// <summary>A filter from its header and bitset at <paramref name="offset"/>; reads the bitset when only the header came.</summary>

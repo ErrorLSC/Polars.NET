@@ -271,3 +271,22 @@ public class CollectBatchesHandle : PolarsHandle
         return true;
     }
 }
+/// <summary>The Parquet scan options beyond the plain arguments (cast rules, hidden prefixes, decryption).</summary>
+public sealed class ParquetScanExtrasHandle : PolarsHandle
+{
+    protected override bool ReleaseHandle()
+    {
+        if (!IsInvalid) NativeBindings.pl_parquet_scan_extras_free(handle);
+        return true;
+    }
+}
+
+/// <summary>The Parquet write options beyond the plain arguments (metadata, Arrow schema, encryption).</summary>
+public sealed class ParquetWriteExtrasHandle : PolarsHandle
+{
+    protected override bool ReleaseHandle()
+    {
+        if (!IsInvalid) NativeBindings.pl_parquet_write_extras_free(handle);
+        return true;
+    }
+}

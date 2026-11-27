@@ -2,6 +2,7 @@ using System.IO.Hashing;
 using Kaminari.Sazanami.Buffers;
 using Kaminari.Seseragi.Files.IO;
 using Kaminari.Seseragi.Files.Parquet.Codecs;
+using Kaminari.Seseragi.Files.Parquet.Encryption;
 using Kaminari.Seseragi.Files.Parquet.Metadata;
 
 namespace Kaminari.Seseragi.Files.Parquet.Reading;
@@ -39,6 +40,16 @@ internal sealed class PageReader : IDisposable
     private bool[]? _needed;            // the pages to be read (others are skipped): bounds reads ahead
     private int _nextPage;              // the next data page by the index
     private bool _dictionaryPending;    // a dictionary page lies before the first indexed page and was not read
+    private ColumnDecryptor? _crypto;   // an encrypted chunk: each header and page is a module of its own
+    private int _dataOrdinal;           // read in order: the ordinal of the next data page (in the AAD of its modules)
+    private int _headerOrdinal;         // the ordinal of the page whose header was parsed last
+    private NativeByteBuffer? _plainHeader, _plainPage; // decrypted header and page body
+
+    /// <summary>
+    /// Decrypts the chunk's headers and pages with <paramref name="crypto"/> from now on (Parquet modular encryption);
+    /// the reader disposes it.
+    /// </summary>
+    public void UseDecryption(ColumnDecryptor crypto) => _crypto = crypto;
 
     /// <summary>
     /// Reads by the chunk's offset index from now on: data pages are found at their offsets (skipped ones passed over
@@ -200,6 +211,7 @@ internal sealed class PageReader : IDisposable
         int compressed = CompressedSize(header, _peekedLength);
         _position += _peekedLength + compressed;
         _peeked = null;
+        Passed(header);
         SkippedPages++;
     }
 
@@ -241,6 +253,7 @@ internal sealed class PageReader : IDisposable
     /// </summary>
     private PageHeader ParseHeader(out int headerLength, long within = long.MaxValue)
     {
+        if (_crypto is not null) return ParseEncryptedHeader(out headerLength, within);
         // From a file, the header is parsed from the first 64 KiB, then (headers with large statistics) from more,
         // up to the rest of the chunk, which is what a chunk in memory offers at once.
         long rest = Math.Min(_length - _position, within), offered = _source is null ? rest : Math.Min(rest, 64 * 1024);
@@ -255,6 +268,47 @@ internal sealed class PageReader : IDisposable
                 offered = Math.Min(rest, offered * 16);
             }
         }
+    }
+
+    /// <summary>
+    /// Decrypts and parses the header module at the current position: the first one of a chunk is its dictionary
+    /// page's when it has one (tried first: the AAD tells them apart), any other a data page's of the next ordinal.
+    /// </summary>
+    private PageHeader ParseEncryptedHeader(out int headerLength, long within)
+    {
+        ColumnDecryptor crypto = _crypto!;
+        long rest = Math.Min(_length - _position, within);
+        int stored = ModuleCipher.StoredLength(Bytes(_position, 4).Span, rest, $"a page header of column '{crypto.Name}'");
+        ReadOnlySpan<byte> module = Bytes(_position, stored).Span;
+        int length = crypto.PlainLength(ParquetModule.DataPageHeader, module);
+        _plainHeader ??= _pool?.Rent(length) ?? new NativeByteBuffer(0, pooled: true);
+        _plainHeader.EnsureCapacity(length);
+        Span<byte> plain = _plainHeader.Span[..length];
+        int ordinal = _index is null ? _dataOrdinal : _nextPage;
+        bool opened = _position == 0 && crypto.TryDecrypt(ParquetModule.DictionaryPageHeader, -1, module, plain)
+                      || crypto.TryDecrypt(ParquetModule.DataPageHeader, ordinal, module, plain);
+        if (!opened) throw crypto.WrongKey();
+        _headerOrdinal = ordinal;
+        headerLength = stored;
+        return PageHeader.Parse(plain, out _, skipStatistics: true);
+    }
+
+    /// <summary>The plaintext of an encrypted page body (after its stored bytes were checked against the CRC).</summary>
+    private ReadOnlyMemory<byte> DecryptBody(PageHeader header, ReadOnlyMemory<byte> stored)
+    {
+        ColumnDecryptor crypto = _crypto!;
+        ParquetModule type = header.Type == PageType.DictionaryPage ? ParquetModule.DictionaryPage : ParquetModule.DataPage;
+        int length = crypto.PlainLength(type, stored.Span);
+        _plainPage ??= _pool?.Rent(length) ?? new NativeByteBuffer(0, pooled: true);
+        _plainPage.EnsureCapacity(length);
+        if (!crypto.TryDecrypt(type, _headerOrdinal, stored.Span, _plainPage.Span[..length])) throw crypto.WrongKey();
+        return _plainPage.Memory[..length];
+    }
+
+    /// <summary>Counts a data page passed (read or skipped) when reading in order: its ordinal names the next one's modules.</summary>
+    private void Passed(PageHeader header)
+    {
+        if (header.Type is PageType.DataPage or PageType.DataPageV2) _dataOrdinal++;
     }
 
     /// <summary>The stored size of a page's body, checked against its header and the rest of the chunk.</summary>
@@ -298,8 +352,18 @@ internal sealed class PageReader : IDisposable
         // Fuzzing: the page's bytes end at a guard page, so that a decoder reading past them faults.
         if (GuardedMemory.Enabled) stored = Guard(ref _guardedStored, GuardedMemory.Block.Copy(stored.Span)).Memory;
 
+        // The CRC of an encrypted page covers its stored module (measured: pyarrow, both algorithms).
         if (_verifyChecksums && header.Crc is int crc && Crc32.HashToUInt32(stored.Span) != unchecked((uint)crc))
             throw new ParquetFormatException($"A {header.Type} page fails its CRC check.");
+        if (_crypto is not null)
+        {
+            if (header.Type is PageType.DataPage or PageType.DataPageV2 or PageType.DictionaryPage)
+            {
+                stored = DecryptBody(header, stored);
+                if (GuardedMemory.Enabled) stored = Guard(ref _guardedStored, GuardedMemory.Block.Copy(stored.Span)).Memory;
+            }
+            if (_index is null) Passed(header);
+        }
 
         if (header.Type is PageType.DataPage or PageType.DataPageV2) DataPagesRead++;
         page = new Page(header, header.Type switch
@@ -373,6 +437,10 @@ internal sealed class PageReader : IDisposable
     {
         Return(ref _scratch);
         Return(ref _window);
+        Return(ref _plainHeader);
+        Return(ref _plainPage);
+        _crypto?.Dispose();
+        _crypto = null;
         ((IDisposable?)_guardedStored)?.Dispose();
         ((IDisposable?)_guardedBody)?.Dispose();
         _guardedStored = _guardedBody = null;

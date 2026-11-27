@@ -121,7 +121,7 @@ public sealed class ParquetDataset : IDisposable, IAsyncDisposable
                 return FileSchema;
             var footers = new ParquetMetadata?[Files.Count];
             for (int i = 0; i < footers.Length; i++) footers[i] = Footer(i);
-            ReadFootersAsync(Store, [.. Files], footers, Footers, Interner, default).AsTask().GetAwaiter().GetResult(); // those not kept
+            ReadFootersAsync(Store, [.. Files], footers, Footers, Interner, Options.Decryption, default).AsTask().GetAwaiter().GetResult(); // those not kept
             return Union(Files, footers!, options, Options);
         }
         return SchemaOf(Files[0].Path, Footer(0)!, options);
@@ -301,13 +301,13 @@ public sealed class ParquetDataset : IDisposable, IAsyncDisposable
         else if (options.SchemaMode == DatasetSchemaMode.UnionByName)
         {
             var footers = new ParquetMetadata?[files.Length];
-            await ReadFootersAsync(store, files, footers, kept, interner, ct).ConfigureAwait(false);
+            await ReadFootersAsync(store, files, footers, kept, interner, options.Decryption, ct).ConfigureAwait(false);
             schema = Union(files, footers!, new ParquetReadOptions(), options);
         }
         else
         {
             // Kept as the other files' footers are (with its version, when worth it): reading it opens it without a request.
-            await using ParquetFile first = await OpenFileAsync(store, files[0], files[0].Metadata, useAsync, ct, kept, 0, interner).ConfigureAwait(false);
+            await using ParquetFile first = await OpenFileAsync(store, files[0], files[0].Metadata, options.Decryption, useAsync, ct, kept, 0, interner).ConfigureAwait(false);
             firstFooter = first.Metadata;
             schema = SchemaOf(files[0].Path, first.Metadata, new ParquetReadOptions());
         }
@@ -317,7 +317,7 @@ public sealed class ParquetDataset : IDisposable, IAsyncDisposable
 
     /// <summary>Reads the footers of the files (those not given or already there), <see cref="FootersAtOnce"/> at a time.</summary>
     private static async ValueTask ReadFootersAsync(IFileStore store, ParquetDatasetFile[] files, ParquetMetadata?[] footers, KeptFooters kept, FooterInterner interner,
-        CancellationToken ct)
+        ParquetDecryptionOptions? decryption, CancellationToken ct)
     {
         await Parallel.ForEachAsync(Enumerable.Range(0, files.Length), new ParallelOptions { MaxDegreeOfParallelism = FootersAtOnce, CancellationToken = ct },
             async (i, token) =>
@@ -328,7 +328,7 @@ public sealed class ParquetDataset : IDisposable, IAsyncDisposable
                     footers[i] = known;
                     return;
                 }
-                await using ParquetFile file = await OpenFileAsync(store, files[i], null, useAsync: true, token, kept, i, interner).ConfigureAwait(false);
+                await using ParquetFile file = await OpenFileAsync(store, files[i], null, decryption, useAsync: true, token, kept, i, interner).ConfigureAwait(false);
                 footers[i] = file.Metadata;
             }).ConfigureAwait(false);
     }
@@ -338,7 +338,8 @@ public sealed class ParquetDataset : IDisposable, IAsyncDisposable
     /// in <paramref name="kept"/> as file <paramref name="index"/> when that is worth it (see <see cref="KeptFooters"/>),
     /// and read sharing with <paramref name="interner"/>.
     /// </summary>
-    internal static async ValueTask<ParquetFile> OpenFileAsync(IFileStore store, ParquetDatasetFile file, ParquetMetadata? footer, bool useAsync, CancellationToken ct,
+    internal static async ValueTask<ParquetFile> OpenFileAsync(IFileStore store, ParquetDatasetFile file, ParquetMetadata? footer, ParquetDecryptionOptions? decryption,
+        bool useAsync, CancellationToken ct,
         KeptFooters? kept = null, int index = 0, FooterInterner? interner = null)
     {
         // A kept footer comes with the file's size and version: opened without a request, read at that version.
@@ -358,7 +359,7 @@ public sealed class ParquetDataset : IDisposable, IAsyncDisposable
         FooterRead? keep = footer is null && kept is not null && KeptFooters.Worth(source, ParquetMetadata.TailGuess) ? bytes => kept.Keep(index, bytes, (source as IStoredSource)?.Stored) : null;
         try
         {
-            return await ParquetFile.OpenOwnedAsync(source, footer, useAsync, ct, keep, interner).ConfigureAwait(false);
+            return await ParquetFile.OpenOwnedAsync(source, footer, decryption, useAsync, ct, keep, interner).ConfigureAwait(false);
         }
         catch (ParquetFormatException e)
         {

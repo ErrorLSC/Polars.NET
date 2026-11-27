@@ -6,7 +6,14 @@ namespace Kaminari.Seseragi.Files.Parquet;
 /// (plain, large, view) are read in the layout <see cref="ParquetReadOptions.ViewTypes"/> says (a dictionary's values
 /// plain), large lists as lists.
 /// </summary>
-public sealed record ParquetDatasetOptions : DatasetOptions;
+public sealed record ParquetDatasetOptions : DatasetOptions
+{
+    /// <summary>
+    /// The keys of files written with Parquet modular encryption, the same for every file of the dataset (files that
+    /// are not encrypted read as they are). See <see cref="ParquetDecryptionOptions"/>.
+    /// </summary>
+    public ParquetDecryptionOptions? Decryption { get; init; }
+}
 
 /// <summary>
 /// A file of a Parquet dataset (see <see cref="DatasetFile"/>), with what else is known of it beforehand.

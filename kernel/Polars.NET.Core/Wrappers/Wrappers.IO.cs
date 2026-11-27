@@ -108,7 +108,8 @@ public readonly partial struct PolarsWrapper
         ulong cloudRetryMaxBackoffMs,
         ulong cloudCacheTtl,
         string[]? cloudKeys,
-        string[]? cloudValues
+        string[]? cloudValues,
+        ParquetScanExtrasHandle? extras = null
         )
     {
         unsafe
@@ -126,6 +127,7 @@ public readonly partial struct PolarsWrapper
             );
             IntPtr hiveSchemaPtr = hivePartitionSchema != null ? hiveLock.Pointers[0] : IntPtr.Zero;
             nuint cloudLen = (nuint)(cloudKeys?.Length ?? 0);
+            using var extrasRef = new BorrowedHandle(extras);
             var h = NativeBindings.pl_scan_parquet(
                 path,
                 nRowsPtr,
@@ -152,7 +154,8 @@ public readonly partial struct PolarsWrapper
                 cloudCacheTtl,
                 cloudKeys,
                 cloudValues,
-                cloudLen
+                cloudLen,
+                extrasRef.Pointer
             );
 
             return ErrorHelper.Check(h);
@@ -175,7 +178,8 @@ public readonly partial struct PolarsWrapper
         SchemaHandle? schema,
         bool hivePartitioning,
         SchemaHandle? hivePartitionSchema,
-        bool tryParseHiveDates)
+        bool tryParseHiveDates,
+        ParquetScanExtrasHandle? extras = null)
     {
         if (buffer.Length == 0)
             throw new ArgumentException("Buffer cannot be empty", nameof(buffer));
@@ -202,6 +206,7 @@ public readonly partial struct PolarsWrapper
                     LazyFrameHandle h;
                     try
                     {
+                        using var extrasRef = new BorrowedHandle(extras);
                         h = NativeBindings.pl_scan_parquet_memory(
                             (IntPtr)lease.Pointer, (UIntPtr)lease.Length, lease.Release, lease.UserData,
                             nRowsPtr,
@@ -218,7 +223,8 @@ public readonly partial struct PolarsWrapper
                             schemaPtr,
                             hivePartitioning,
                             hiveSchemaPtr,
-                            tryParseHiveDates
+                            tryParseHiveDates,
+                            extrasRef.Pointer
                         );
                     }
                     catch
@@ -253,7 +259,8 @@ public readonly partial struct PolarsWrapper
         ulong cloudRetryMaxBackoffMs,
         ulong cloudCacheTtl,
         string[]? cloudKeys,
-        string[]? cloudValues
+        string[]? cloudValues,
+        ParquetWriteExtrasHandle? extras = null
         )
     {
         nuint rgs = rowGroupSize > 0 ? (nuint)rowGroupSize : 0;
@@ -264,6 +271,7 @@ public readonly partial struct PolarsWrapper
 
         nuint cloudLen = (nuint)(cloudKeys?.Length ?? 0);
 
+        using var extrasRef = new BorrowedHandle(extras);
         NativeBindings.pl_lazyframe_sink_parquet(
             lf,
             path,
@@ -285,7 +293,8 @@ public readonly partial struct PolarsWrapper
             cloudCacheTtl,
             cloudKeys,
             cloudValues,
-            cloudLen
+            cloudLen,
+            extrasRef.Pointer
         );
 
         lf.TransferOwnership();
@@ -323,7 +332,8 @@ public readonly partial struct PolarsWrapper
         ulong cloudRetryMaxBackoffMs,
         ulong cloudCacheTtl,
         string[]? cloudKeys,
-        string[]? cloudValues
+        string[]? cloudValues,
+        ParquetWriteExtrasHandle? extras = null
     )
     {
         nuint rgs = rowGroupSize > 0 ? (nuint)rowGroupSize : 0;
@@ -336,6 +346,7 @@ public readonly partial struct PolarsWrapper
         nuint cloudLen = (nuint)(cloudKeys?.Length ?? 0);
 
         // Call Native Binding
+        using var extrasRef = new BorrowedHandle(extras);
         NativeBindings.pl_lazyframe_sink_parquet_partitioned(
             lf,
             path,
@@ -369,7 +380,8 @@ public readonly partial struct PolarsWrapper
             cloudCacheTtl,
             cloudKeys,
             cloudValues,
-            cloudLen
+            cloudLen,
+            extrasRef.Pointer
         );
 
         lf.TransferOwnership();
@@ -385,11 +397,13 @@ public readonly partial struct PolarsWrapper
         int rowGroupSize,
         int dataPageSize,
         int compatLevel,
-        bool maintainOrder)
+        bool maintainOrder,
+        ParquetWriteExtrasHandle? extras = null)
     {
         nuint rowGroupSizeNative = rowGroupSize > 0 ? (nuint)rowGroupSize : 0;
         nuint dataPageSizeNative = dataPageSize > 0 ? (nuint)dataPageSize : 0;
 
+        using var extrasRef = new BorrowedHandle(extras);
         NativeBindings.pl_lazyframe_sink_parquet_memory(
             lf,
             out var ffiBuffer,
@@ -399,7 +413,8 @@ public readonly partial struct PolarsWrapper
             rowGroupSizeNative,
             dataPageSizeNative,
             compatLevel,
-            maintainOrder
+            maintainOrder,
+            extrasRef.Pointer
         );
 
         lf.TransferOwnership();
@@ -415,8 +430,9 @@ public readonly partial struct PolarsWrapper
         int rowGroupSize,
         int dataPageSize,
         int compatLevel,
-        bool maintainOrder)
-        => NativeBuffer.TakeToArray(SinkParquetMemoryRaw(lf, compression, compressionLevel, statistics, rowGroupSize, dataPageSize, compatLevel, maintainOrder));
+        bool maintainOrder,
+        ParquetWriteExtrasHandle? extras = null)
+        => NativeBuffer.TakeToArray(SinkParquetMemoryRaw(lf, compression, compressionLevel, statistics, rowGroupSize, dataPageSize, compatLevel, maintainOrder, extras));
     public static NativeBuffer SinkParquetNativeMemory(
         LazyFrameHandle lf,
         PlParquetCompression compression,
@@ -425,8 +441,9 @@ public readonly partial struct PolarsWrapper
         int rowGroupSize,
         int dataPageSize,
         int compatLevel,
-        bool maintainOrder)
-        => NativeBuffer.Take(SinkParquetMemoryRaw(lf, compression, compressionLevel, statistics, rowGroupSize, dataPageSize, compatLevel, maintainOrder));
+        bool maintainOrder,
+        ParquetWriteExtrasHandle? extras = null)
+        => NativeBuffer.Take(SinkParquetMemoryRaw(lf, compression, compressionLevel, statistics, rowGroupSize, dataPageSize, compatLevel, maintainOrder, extras));
     public static void SinkParquetCallback(
         LazyFrameHandle lf,
         NativeWriteTarget target,
@@ -436,11 +453,13 @@ public readonly partial struct PolarsWrapper
         int rowGroupSize,
         int dataPageSize,
         int compatLevel,
-        bool maintainOrder)
+        bool maintainOrder,
+        ParquetWriteExtrasHandle? extras = null)
     {
         nuint rowGroupSizeNative = rowGroupSize > 0 ? (nuint)rowGroupSize : 0;
         nuint dataPageSizeNative = dataPageSize > 0 ? (nuint)dataPageSize : 0;
 
+        using var extrasRef = new BorrowedHandle(extras);
         NativeBindings.pl_lazyframe_sink_parquet_callback(
             lf,
             target.Callback,
@@ -452,7 +471,8 @@ public readonly partial struct PolarsWrapper
             rowGroupSizeNative,
             dataPageSizeNative,
             compatLevel,
-            maintainOrder
+            maintainOrder,
+            extrasRef.Pointer
         );
 
         lf.TransferOwnership();

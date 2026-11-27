@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using Kaminari.Seseragi.Files.Parquet.Encryption;
 using Kaminari.Seseragi.Files.Parquet.Metadata;
 
 namespace Kaminari.Seseragi.Files.Parquet;
@@ -138,19 +139,24 @@ internal sealed class PageIndexes(ParquetFile file)
             {
                 var (at, length, key, isOffset) = wanted[i];
                 ReadOnlySpan<byte> span = bytes.AsSpan((int)(at - start), length);
-                if (isOffset) _offsets.TryAdd(key, Parse(OffsetIndex.Parse, span));
-                else _columns.TryAdd(key, Parse(ColumnIndex.Parse, span));
+                if (isOffset) _offsets.TryAdd(key, Parse(OffsetIndex.Parse, span, key, ParquetModule.OffsetIndex));
+                else _columns.TryAdd(key, Parse(ColumnIndex.Parse, span, key, ParquetModule.ColumnIndex));
             }
         }
 
         (long Start, int Length)? Range(long? offset, int? length) =>
             offset is long o && length is int l && o >= 0 && l > 0 && o <= file.Source.Length - l ? (o, l) : null;
 
-        static T? Parse<T>(ParseSpan<T> parse, ReadOnlySpan<byte> data) where T : class
+        T? Parse<T>(ParseSpan<T> parse, ReadOnlySpan<byte> data, (int Group, int Leaf) key, ParquetModule module) where T : class
         {
             try
             {
-                return parse(data);
+                if (file.Decryptor is not { } decryptor) return parse(data);
+                // An encrypted chunk's index is a module of its own; without the chunk's key it is no index.
+                RowGroup group = file.Thrift.RowGroups[key.Group];
+                using ColumnDecryptor? crypto = decryptor.TryForChunk(group.Columns[key.Leaf], group.Ordinal ?? key.Group, key.Leaf, out bool missing);
+                if (missing) return null;
+                return crypto is null ? parse(data) : parse(crypto.Decrypt(module, -1, data));
             }
             catch (ParquetFormatException)
             {

@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using Apache.Arrow.C;
 using Polars.NET.Core.Enums;
 
 namespace Polars.NET.Core.Native;
@@ -121,7 +122,8 @@ unsafe internal partial class NativeBindings
         ulong cloud_cache_ttl,
         string[]? cloud_keys,
         string[]? cloud_values,
-        UIntPtr cloud_len
+        UIntPtr cloud_len,
+        IntPtr extras // ParquetScanExtras, null for none
     );
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial LazyFrameHandle pl_scan_parquet_memory(
@@ -143,7 +145,8 @@ unsafe internal partial class NativeBindings
         IntPtr schema,
         [MarshalAs(UnmanagedType.U1)] bool hive_partitioning,
         IntPtr hive_schema,
-        [MarshalAs(UnmanagedType.U1)] bool try_parse_hive_dates
+        [MarshalAs(UnmanagedType.U1)] bool try_parse_hive_dates,
+        IntPtr extras // ParquetScanExtras, null for none
     );
 
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
@@ -170,7 +173,8 @@ unsafe internal partial class NativeBindings
         ulong cloud_cache_ttl,
         string[]? cloud_keys,
         string[]? cloud_values,
-        UIntPtr cloud_len
+        UIntPtr cloud_len,
+        IntPtr extras // ParquetWriteExtras, null for none
     );
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial void pl_lazyframe_sink_parquet_partitioned(
@@ -206,7 +210,8 @@ unsafe internal partial class NativeBindings
         ulong cloud_cache_ttl,
         string[]? cloud_keys,
         string[]? cloud_values,
-        nuint cloud_len
+        nuint cloud_len,
+        IntPtr extras // ParquetWriteExtras, null for none
     );
     [LibraryImport(LibName)]
     public static partial void pl_lazyframe_sink_parquet_memory(
@@ -222,7 +227,8 @@ unsafe internal partial class NativeBindings
         int compat_level,
 
         // --- Unified Options ---
-        [MarshalAs(UnmanagedType.U1)] bool maintain_order
+        [MarshalAs(UnmanagedType.U1)] bool maintain_order,
+        IntPtr extras // ParquetWriteExtras, null for none
     );
     [LibraryImport(LibName)]
     public static partial void pl_lazyframe_sink_parquet_callback(
@@ -240,8 +246,48 @@ unsafe internal partial class NativeBindings
         int compat_level,
 
         // --- Unified Options ---
-        [MarshalAs(UnmanagedType.U1)] bool maintain_order
+        [MarshalAs(UnmanagedType.U1)] bool maintain_order,
+        IntPtr extras // ParquetWriteExtras, null for none
     );
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    public static unsafe partial ParquetScanExtrasHandle pl_parquet_scan_extras_new(
+        [MarshalAs(UnmanagedType.U1)] bool ignore_extra_columns,
+        uint cast_flags,
+        string[]? hidden_prefixes,
+        nuint hidden_prefixes_len,
+        byte* footer_key, // null: no decryption
+        nuint footer_key_len,
+        string[]? column_key_names,
+        byte** column_keys,
+        nuint* column_key_lens,
+        nuint column_keys_len,
+        byte* aad_prefix, // null: none supplied
+        nuint aad_prefix_len,
+        [MarshalAs(UnmanagedType.U1)] bool verify_footer_signature);
+
+    [LibraryImport(LibName)]
+    public static partial void pl_parquet_scan_extras_free(IntPtr ptr);
+
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    public static unsafe partial ParquetWriteExtrasHandle pl_parquet_write_extras_new(
+        string[]? metadata_keys,
+        string[]? metadata_values,
+        nuint metadata_len,
+        CArrowSchema* arrow_schema, // borrowed; null: none
+        byte* footer_key, // null: no encryption
+        nuint footer_key_len,
+        string[]? column_key_names,
+        byte** column_keys,
+        nuint* column_key_lens,
+        nuint column_keys_len,
+        [MarshalAs(UnmanagedType.U1)] bool plaintext_footer,
+        byte* aad_prefix, // null: none
+        nuint aad_prefix_len,
+        [MarshalAs(UnmanagedType.U1)] bool store_aad_prefix);
+
+    [LibraryImport(LibName)]
+    public static partial void pl_parquet_write_extras_free(IntPtr ptr);
+
     // IPC
     // ---------------------------------------------------------
     // Scan IPC (File / Cloud)

@@ -3,8 +3,10 @@ using System.Diagnostics.CodeAnalysis;
 using System.Linq.Expressions;
 using Kaminari.Sazanami.Buffers;
 using Kaminari.Seseragi.Files.IO;
+using Kaminari.Seseragi.Files.Parquet.Encryption;
 using Kaminari.Seseragi.Files.Parquet.Metadata;
 using Kaminari.Seseragi.Files.Parquet.Schema;
+using Kaminari.Seseragi.Files.Parquet.Thrift;
 
 namespace Kaminari.Seseragi.Files.Parquet;
 
@@ -19,8 +21,9 @@ public sealed class ParquetFile : IDisposable, IAsyncDisposable
 
     private readonly IDisposable? _owned;
 
-    private ParquetFile(IRandomAccess source, IDisposable? owned, FileMetaData thrift, ParquetMetadata metadata)
+    private ParquetFile(IRandomAccess source, IDisposable? owned, FileMetaData thrift, ParquetMetadata metadata, FileDecryptor? decryptor)
     {
+        Decryptor = decryptor;
         Source = source;
         // Where the data ends: at the footer (when its length is known; else at the closing length and magic).
         DataEnd = source.Length - TailLength - (metadata.FooterSize ?? 0);
@@ -34,6 +37,9 @@ public sealed class ParquetFile : IDisposable, IAsyncDisposable
 
     /// <summary>The full footer.</summary>
     internal FileMetaData Thrift { get; }
+
+    /// <summary>The file's decryption (Parquet modular encryption); null when it is not encrypted.</summary>
+    internal FileDecryptor? Decryptor { get; }
 
     private PageIndexes? _pageIndexes;
 
@@ -85,18 +91,19 @@ public sealed class ParquetFile : IDisposable, IAsyncDisposable
     /// <summary>Reads the rows of the file at <paramref name="path"/> as <typeparamref name="T"/> (see <see cref="ParquetReader{T}"/>).</summary>
     /// <inheritdoc cref="OpenReader{T}(Expression{Func{T, bool}}?, ParquetReadOptions?)"/>
     public static List<T> ReadList<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(string path, Expression<Func<T, bool>>? where = null,
-        ParquetReadOptions? options = null)
+        ParquetReadOptions? options = null, ParquetDecryptionOptions? decryption = null)
     {
-        using ParquetFile file = Open(path);
+        using ParquetFile file = Open(path, decryption);
         using ParquetReader<T> reader = file.OpenReader(where, options);
         return reader.ReadList();
     }
 
-    /// <inheritdoc cref="ReadList{T}(string, Expression{Func{T, bool}}?, ParquetReadOptions?)"/>
+    /// <inheritdoc cref="ReadList{T}(string, Expression{Func{T, bool}}?, ParquetReadOptions?, ParquetDecryptionOptions?)"/>
     public static async Task<List<T>> ReadListAsync<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] T>(string path,
-        Expression<Func<T, bool>>? where = null, ParquetReadOptions? options = null, CancellationToken cancellationToken = default)
+        Expression<Func<T, bool>>? where = null, ParquetReadOptions? options = null, ParquetDecryptionOptions? decryption = null,
+        CancellationToken cancellationToken = default)
     {
-        await using ParquetFile file = await OpenAsync(path, cancellationToken).ConfigureAwait(false);
+        await using ParquetFile file = await OpenAsync(path, decryption, cancellationToken).ConfigureAwait(false);
         await using ParquetReader<T> reader = file.OpenReader(where, options);
         return await reader.ReadListAsync(cancellationToken).ConfigureAwait(false);
     }
@@ -108,11 +115,14 @@ public sealed class ParquetFile : IDisposable, IAsyncDisposable
     internal long DataEnd { get; }
 
     /// <summary>Opens a file.</summary>
-    /// <exception cref="ParquetFormatException">The file is not a Parquet file, is encrypted, or its footer is damaged.</exception>
-    public static ParquetFile Open(string path) => Sync(OpenCoreAsync(path, useAsync: false, default));
+    /// <param name="path">The file.</param>
+    /// <param name="decryption">The keys of a file written with Parquet modular encryption (ignored for a file that is not encrypted).</param>
+    /// <exception cref="ParquetFormatException">The file is not a Parquet file, is encrypted and the keys do not open it, or its footer is damaged.</exception>
+    public static ParquetFile Open(string path, ParquetDecryptionOptions? decryption = null) => Sync(OpenCoreAsync(path, decryption, useAsync: false, default));
 
     /// <summary>Opens a file, keeping even a small one on the file instead of in memory (tests read small files as large ones).</summary>
-    internal static ParquetFile OpenOnSource(string path) => Sync(OpenCoreAsync(path, useAsync: false, default, smallInMemory: false));
+    internal static ParquetFile OpenOnSource(string path, ParquetDecryptionOptions? decryption = null) =>
+        Sync(OpenCoreAsync(path, decryption, useAsync: false, default, smallInMemory: false));
 
     /// <summary>
     /// Opens a stream from its current position. Bytes already in memory are read in place, without a lock: a
@@ -123,15 +133,19 @@ public sealed class ParquetFile : IDisposable, IAsyncDisposable
     /// is disposed with the file (a copied one at once), or when opening fails. A stream is never read through a
     /// memory mapping (<see cref="ParquetReadOptions.MemoryMap"/>), even a file stream.
     /// </summary>
-    /// <exception cref="ParquetFormatException">The data is not a Parquet file, is encrypted, or its footer is damaged.</exception>
-    public static ParquetFile Open(Stream stream, bool leaveOpen = false) => Sync(OpenCoreAsync(stream, leaveOpen, useAsync: false, default));
+    /// <inheritdoc cref="Open(string, ParquetDecryptionOptions?)" path="/param[@name='decryption']"/>
+    /// <exception cref="ParquetFormatException">The data is not a Parquet file, is encrypted and the keys do not open it, or its footer is damaged.</exception>
+    public static ParquetFile Open(Stream stream, bool leaveOpen = false, ParquetDecryptionOptions? decryption = null) =>
+        Sync(OpenCoreAsync(stream, leaveOpen, decryption, useAsync: false, default));
 
     /// <summary>
     /// Opens a file held in memory, read in place without a copy (columns are decoded from slices of it; the batches
     /// never point into it). The memory must stay unchanged while the file and its readers are used.
     /// </summary>
-    /// <exception cref="ParquetFormatException">The data is not a Parquet file, is encrypted, or its footer is damaged.</exception>
-    public static ParquetFile Open(ReadOnlyMemory<byte> bytes) => Sync(OpenCoreAsync(new MemoryRandomAccess(bytes), null, useAsync: false, default));
+    /// <inheritdoc cref="Open(string, ParquetDecryptionOptions?)" path="/param[@name='decryption']"/>
+    /// <exception cref="ParquetFormatException">The data is not a Parquet file, is encrypted and the keys do not open it, or its footer is damaged.</exception>
+    public static ParquetFile Open(ReadOnlyMemory<byte> bytes, ParquetDecryptionOptions? decryption = null) =>
+        Sync(OpenCoreAsync(new MemoryRandomAccess(bytes), null, decryption, useAsync: false, default));
 
     /// <summary>
     /// Opens a file held in memory that <paramref name="owner"/> owns (native memory, say): the file disposes the owner
@@ -141,7 +155,7 @@ public sealed class ParquetFile : IDisposable, IAsyncDisposable
     {
         try
         {
-            return Sync(OpenCoreAsync(new MemoryRandomAccess(bytes), owner, useAsync: false, default));
+            return Sync(OpenCoreAsync(new MemoryRandomAccess(bytes), owner, null, useAsync: false, default));
         }
         catch
         {
@@ -151,31 +165,40 @@ public sealed class ParquetFile : IDisposable, IAsyncDisposable
     }
 
     /// <summary>Opens data read at offsets (say, an object in a store); the caller keeps ownership of the source.</summary>
-    /// <exception cref="ParquetFormatException">The data is not a Parquet file, is encrypted, or its footer is damaged.</exception>
-    public static ParquetFile Open(IRandomAccess source) => Sync(OpenCoreAsync(source, null, useAsync: false, default));
+    /// <inheritdoc cref="Open(string, ParquetDecryptionOptions?)" path="/param[@name='decryption']"/>
+    /// <exception cref="ParquetFormatException">The data is not a Parquet file, is encrypted and the keys do not open it, or its footer is damaged.</exception>
+    public static ParquetFile Open(IRandomAccess source, ParquetDecryptionOptions? decryption = null) =>
+        Sync(OpenCoreAsync(source, null, decryption, useAsync: false, default));
 
     /// <summary>
     /// Opens a file whose footer was read before: <paramref name="metadata"/> is the <see cref="Metadata"/> of an
     /// earlier <see cref="ParquetFile"/> of the same bytes (an engine or catalog keeps it across queries). Nothing is
     /// read on open. The caller vouches that the file has not changed; reads still check every range against it.
     /// </summary>
+    /// For an encrypted file, <paramref name="decryption"/> gives the keys its pages are read with (the footer's
+    /// were applied when it was read).
     /// <exception cref="ArgumentException"><paramref name="metadata"/> was not read from a file.</exception>
-    public static ParquetFile Open(string path, ParquetMetadata metadata)
+    public static ParquetFile Open(string path, ParquetMetadata metadata, ParquetDecryptionOptions? decryption = null)
     {
         ArgumentNullException.ThrowIfNull(path);
         FileMetaData thrift = ReadFooter(metadata);
+        FileDecryptor? decryptor = DecryptorOf(metadata, decryption);
         var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 1, FileOptions.RandomAccess);
         var source = new RandomAccessSource(stream, false, null, mappable: true);
-        return new ParquetFile(source, source, thrift, metadata);
+        return new ParquetFile(source, source, thrift, metadata, decryptor);
     }
 
-    /// <inheritdoc cref="Open(string, ParquetMetadata)"/>
+    /// <inheritdoc cref="Open(string, ParquetMetadata, ParquetDecryptionOptions?)"/>
     /// <remarks>The caller keeps ownership of <paramref name="source"/>.</remarks>
-    public static ParquetFile Open(IRandomAccess source, ParquetMetadata metadata)
+    public static ParquetFile Open(IRandomAccess source, ParquetMetadata metadata, ParquetDecryptionOptions? decryption = null)
     {
         ArgumentNullException.ThrowIfNull(source);
-        return new ParquetFile(source, null, ReadFooter(metadata), metadata);
+        return new ParquetFile(source, null, ReadFooter(metadata), metadata, DecryptorOf(metadata, decryption));
     }
+
+    /// <summary>The decryption of a file whose footer was read before (null when it is not encrypted).</summary>
+    private static FileDecryptor? DecryptorOf(ParquetMetadata metadata, ParquetDecryptionOptions? decryption) =>
+        metadata.Encryption is { } algorithm ? FileDecryptor.Create(algorithm, decryption) : null;
 
     /// <summary>
     /// Opens a source the file then owns (disposed with it when it is <see cref="IDisposable"/>, or when opening
@@ -183,15 +206,15 @@ public sealed class ParquetFile : IDisposable, IAsyncDisposable
     /// <paramref name="footerRead"/> (if given) gets its bytes, once they are parsed without error; with
     /// <paramref name="interner"/> it shares what it holds alike with the footers read before.
     /// </summary>
-    internal static async ValueTask<ParquetFile> OpenOwnedAsync(IRandomAccess source, ParquetMetadata? metadata, bool useAsync, CancellationToken ct,
-        FooterRead? footerRead = null, FooterInterner? interner = null)
+    internal static async ValueTask<ParquetFile> OpenOwnedAsync(IRandomAccess source, ParquetMetadata? metadata, ParquetDecryptionOptions? decryption,
+        bool useAsync, CancellationToken ct, FooterRead? footerRead = null, FooterInterner? interner = null)
     {
         var owned = source as IDisposable;
         try
         {
             return metadata is null
-                ? await OpenCoreAsync(source, owned, useAsync, ct, footerRead: footerRead, interner: interner).ConfigureAwait(false)
-                : new ParquetFile(source, owned, ReadFooter(metadata), metadata);
+                ? await OpenCoreAsync(source, owned, decryption, useAsync, ct, footerRead: footerRead, interner: interner).ConfigureAwait(false)
+                : new ParquetFile(source, owned, ReadFooter(metadata), metadata, DecryptorOf(metadata, decryption));
         }
         catch
         {
@@ -206,17 +229,18 @@ public sealed class ParquetFile : IDisposable, IAsyncDisposable
         return metadata.Thrift ?? throw new ArgumentException("The metadata was built by hand, not read from a Parquet file.", nameof(metadata));
     }
 
-    /// <inheritdoc cref="Open(string)"/>
-    public static ValueTask<ParquetFile> OpenAsync(string path, CancellationToken cancellationToken = default) =>
-        OpenCoreAsync(path, useAsync: true, cancellationToken);
+    /// <inheritdoc cref="Open(string, ParquetDecryptionOptions?)"/>
+    public static ValueTask<ParquetFile> OpenAsync(string path, ParquetDecryptionOptions? decryption = null, CancellationToken cancellationToken = default) =>
+        OpenCoreAsync(path, decryption, useAsync: true, cancellationToken);
 
-    /// <inheritdoc cref="Open(Stream, bool)"/>
-    public static ValueTask<ParquetFile> OpenAsync(Stream stream, bool leaveOpen = false, CancellationToken cancellationToken = default) =>
-        OpenCoreAsync(stream, leaveOpen, useAsync: true, cancellationToken);
+    /// <inheritdoc cref="Open(Stream, bool, ParquetDecryptionOptions?)"/>
+    public static ValueTask<ParquetFile> OpenAsync(Stream stream, bool leaveOpen = false, ParquetDecryptionOptions? decryption = null,
+        CancellationToken cancellationToken = default) =>
+        OpenCoreAsync(stream, leaveOpen, decryption, useAsync: true, cancellationToken);
 
-    /// <inheritdoc cref="Open(IRandomAccess)"/>
-    public static ValueTask<ParquetFile> OpenAsync(IRandomAccess source, CancellationToken cancellationToken = default) =>
-        OpenCoreAsync(source, null, useAsync: true, cancellationToken);
+    /// <inheritdoc cref="Open(IRandomAccess, ParquetDecryptionOptions?)"/>
+    public static ValueTask<ParquetFile> OpenAsync(IRandomAccess source, ParquetDecryptionOptions? decryption = null, CancellationToken cancellationToken = default) =>
+        OpenCoreAsync(source, null, decryption, useAsync: true, cancellationToken);
 
     /// <inheritdoc/>
     public void Dispose() => _owned?.Dispose();
@@ -234,16 +258,17 @@ public sealed class ParquetFile : IDisposable, IAsyncDisposable
 
     private static T Sync<T>(ValueTask<T> task) => task.IsCompleted ? task.Result : task.AsTask().GetAwaiter().GetResult();
 
-    private static ValueTask<ParquetFile> OpenCoreAsync(string path, bool useAsync, CancellationToken ct, bool smallInMemory = true)
+    private static ValueTask<ParquetFile> OpenCoreAsync(string path, ParquetDecryptionOptions? decryption, bool useAsync, CancellationToken ct,
+        bool smallInMemory = true)
     {
         ArgumentNullException.ThrowIfNull(path);
         var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 1,
             useAsync ? FileOptions.RandomAccess | FileOptions.Asynchronous : FileOptions.RandomAccess);
-        return OpenCoreAsync(stream, leaveOpen: false, useAsync, ct, smallInMemory, mappable: true);
+        return OpenCoreAsync(stream, leaveOpen: false, decryption, useAsync, ct, smallInMemory, mappable: true);
     }
 
-    private static async ValueTask<ParquetFile> OpenCoreAsync(Stream stream, bool leaveOpen, bool useAsync, CancellationToken ct, bool smallInMemory = true,
-        bool mappable = false)
+    private static async ValueTask<ParquetFile> OpenCoreAsync(Stream stream, bool leaveOpen, ParquetDecryptionOptions? decryption, bool useAsync,
+        CancellationToken ct, bool smallInMemory = true, bool mappable = false)
     {
         ArgumentNullException.ThrowIfNull(stream);
         RandomAccessSource source;
@@ -263,7 +288,7 @@ public sealed class ParquetFile : IDisposable, IAsyncDisposable
         }
         try
         {
-            return await OpenCoreAsync(source, source, useAsync, ct, smallInMemory).ConfigureAwait(false);
+            return await OpenCoreAsync(source, source, decryption, useAsync, ct, smallInMemory).ConfigureAwait(false);
         }
         catch
         {
@@ -272,8 +297,8 @@ public sealed class ParquetFile : IDisposable, IAsyncDisposable
         }
     }
 
-    private static async ValueTask<ParquetFile> OpenCoreAsync(IRandomAccess source, IDisposable? owned, bool useAsync, CancellationToken ct, bool smallInMemory = true,
-        FooterRead? footerRead = null, FooterInterner? interner = null)
+    private static async ValueTask<ParquetFile> OpenCoreAsync(IRandomAccess source, IDisposable? owned, ParquetDecryptionOptions? decryption, bool useAsync,
+        CancellationToken ct, bool smallInMemory = true, FooterRead? footerRead = null, FooterInterner? interner = null)
     {
         ArgumentNullException.ThrowIfNull(source);
         long length = source.Length;
@@ -287,7 +312,9 @@ public sealed class ParquetFile : IDisposable, IAsyncDisposable
             await ReadExactlyAsync(source, length - tailLength, tail.AsMemory(0, tailLength), useAsync, ct).ConfigureAwait(false);
             if (tailLength == length && !tail.AsSpan(0, MagicLength).SequenceEqual("PAR1"u8) && !tail.AsSpan(0, MagicLength).SequenceEqual("PARE"u8))
                 throw new ParquetFormatException("The data is not a Parquet file (no PAR1 at the start).");
-            int footerLength = ParquetMetadata.FooterLength(tail.AsSpan(tailLength - TailLength, TailLength), "The data");
+            ReadOnlySpan<byte> last = tail.AsSpan(tailLength - TailLength, TailLength);
+            bool encryptedFooter = last[MagicLength..].SequenceEqual("PARE"u8);
+            int footerLength = ParquetMetadata.FooterLength(last, "The data", allowEncrypted: true);
             if (footerLength > length - MagicLength - TailLength)
                 throw new ParquetFormatException($"The Parquet footer ({footerLength} bytes) is longer than the file.");
 
@@ -300,18 +327,41 @@ public sealed class ParquetFile : IDisposable, IAsyncDisposable
                 bytes = footer.AsMemory(0, footerLength);
             }
 
-            FileMetaData thrift = FileMetaData.Parse(bytes.Span, interner);
-            if (thrift.EncryptionAlgorithm is { } algorithm)
-                throw new ParquetFormatException($"The Parquet file is encrypted ({algorithm.Name}, plaintext footer), which is not supported.");
-            if (footer is null) CheckLayout(thrift, tail.AsSpan(0, tailLength - TailLength - footerLength), length - TailLength - footerLength, footerLength);
-            ParquetMetadata metadata = ParquetMetadata.FromThrift(thrift, footerLength);
-            footerRead?.Invoke(bytes.Span); // before the tail buffer is reused below
+            FileMetaData thrift;
+            FileDecryptor? decryptor = null;
+            if (encryptedFooter)
+            {
+                // PARE: the FileCryptoMetaData, then the footer as an encrypted module.
+                if (decryption is null) throw ParquetMetadata.Encrypted("The Parquet file");
+                var reader = new ThriftCompactReader(bytes.Span);
+                FileCryptoMetaData crypto = FileCryptoMetaData.Read(ref reader);
+                decryptor = FileDecryptor.Create(crypto.EncryptionAlgorithm, decryption);
+                thrift = decryptor.DecryptFooter(bytes.Span[reader.Position..], interner);
+            }
+            else
+            {
+                thrift = FileMetaData.Parse(bytes.Span, interner);
+                if (thrift.EncryptionAlgorithm is { } algorithm)
+                {
+                    // A plaintext footer of an encrypted file, signed: its nonce and tag follow it.
+                    const int Signature = FileDecryptor.NonceLength + FileDecryptor.TagLength;
+                    if (footerLength <= Signature) throw new ParquetFormatException("The plaintext footer of the encrypted Parquet file has no room for its signature.");
+                    decryptor = FileDecryptor.Create(algorithm, decryption);
+                    decryptor.VerifyFooterSignature(bytes.Span[..^Signature], bytes.Span[^Signature..]);
+                }
+            }
+            decryptor?.DecryptColumnMetadata(thrift);
+            // An encrypted file's chunks whose keys were not given cannot be placed: the layout is not checked there.
+            if (footer is null && decryptor is null) CheckLayout(thrift, tail.AsSpan(0, tailLength - TailLength - footerLength), length - TailLength - footerLength, footerLength);
+            ParquetMetadata metadata = ParquetMetadata.FromThrift(thrift, footerLength, decryptor?.Algorithm);
+            // An encrypted footer is not handed over (its bytes would not parse without the keys).
+            if (decryptor is null) footerRead?.Invoke(bytes.Span); // before the tail buffer is reused below
             if (tailLength < length && source is ILocalSource { SmallReadsAreCheap: true })
             {
                 // The start is checked where reading it is cheap (memory, a local file); on a store it would cost a request.
                 // The footer is parsed: the tail buffer is free (it is kept only for a file it holds whole).
                 await ReadExactlyAsync(source, 0, tail.AsMemory(0, MagicLength), useAsync, ct).ConfigureAwait(false);
-                if (!tail.AsSpan(0, MagicLength).SequenceEqual("PAR1"u8))
+                if (!tail.AsSpan(0, MagicLength).SequenceEqual(encryptedFooter ? "PARE"u8 : "PAR1"u8))
                     throw new ParquetFormatException("The data does not start with PAR1: it is not a single Parquet file (cut at the start, or preceded by other bytes).");
             }
             // A file the tail read held whole (up to 64 KiB) is read from those bytes from now on: on an object store
@@ -321,9 +371,9 @@ public sealed class ParquetFile : IDisposable, IAsyncDisposable
             {
                 var copy = new NativeByteBuffer(tailLength);
                 tail.AsSpan(0, tailLength).CopyTo(copy.Span);
-                return new ParquetFile(new MemoryRandomAccess(copy.Memory[..tailLength]), new Owned(owned, copy), thrift, metadata);
+                return new ParquetFile(new MemoryRandomAccess(copy.Memory[..tailLength]), new Owned(owned, copy), thrift, metadata, decryptor);
             }
-            return new ParquetFile(source, owned, thrift, metadata);
+            return new ParquetFile(source, owned, thrift, metadata, decryptor);
         }
         finally
         {

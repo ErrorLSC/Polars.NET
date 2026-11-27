@@ -21,6 +21,20 @@ The native library moves from Polars 0.55 to the Rust code of Python Polars 2.2.
 * `TopK` and `BottomK` give their values in no particular order, as Polars documents; sort the result to order it.
 * `Expr.Cast` and `Series.Cast` no longer turn text into `Date`, `Datetime` or `Time` (strict or not): the engine refuses it since Polars 2.0, with an error that names the fix. Parse the text with `Str.ToDate()`, `Str.ToDatetime()` or `Str.ToTime()`, which also take a format. LINQ queries and SQL `CAST` / `TRY_CAST` keep converting ISO 8601 text: a date, or a date and a time after `T` or a space (seconds optional); as a `DATE`, a date-time gives its date, as PostgreSQL and Spark do. `TRY_CAST` of a literal that is no date is NULL (it failed the query's translation).
 
+## Parquet: more engine options, and Parquet modular encryption
+
+### New
+
+* `ReadParquet` / `ScanParquet` (C# and F#) take `ignoreExtraColumns` (a file's columns the schema does not name are left out instead of failing the read), `castOptions` (`ScanCastOptions`, as Python's: integer, float and datetime casts between a file's types and the schema's, struct fields filled or dropped, categoricals read as text), `hiddenFilePrefixes` (files skipped by the start of their name) and `decryption`.
+* `WriteParquet` / `SinkParquet` in every form (path, partitioned, memory, native memory, stream, pipe, async) take `metadata` (the file's key-value metadata), `arrowSchema` (the Arrow schema stored in the file, with its field metadata; names and types must match the data's) and `encryption`.
+* Parquet modular encryption with keys given directly, experimental as in Polars (`ParquetEncryption`, `ParquetDecryption`; F# alike): uniform encryption, or columns encrypted each with its own key (by dot-separated path; the other columns stay in plain); an encrypted footer, or a plaintext one that is signed; an AAD prefix stored in the file or supplied by readers. The engine reads and writes `AES_GCM_V1` with 16- or 32-byte keys (a key of another length is refused before the engine sees it). A column without its key can be left out of a read; reading it fails, naming the column. Keys managed by a KMS are not supported. pyarrow 26 and Python Polars 2.2 read the files and write files Polars.NET reads (verified).
+* Seseragi.Files reads and writes encrypted Parquet files in managed code, without a native dependency (`ParquetFile.Open(..., decryption)`, `ParquetDatasetOptions.Decryption`, `ParquetWriteOptions.Encryption`): `AES_GCM_V1` and `AES_GCM_CTR_V1`, 16-, 24- and 32-byte keys, page indexes, Bloom filters and statistics included, files with a plaintext footer read without keys (their columns that are not encrypted). That covers files the engine refuses (`AES_GCM_CTR_V1`, 24-byte keys).
+
+### Changed
+
+* `WriteParquet` and `SinkParquet` to a path (and their partitioned forms) write column statistics by default (`statistics: true`, as Python Polars does); `statistics: false` gives the old output.
+* The new parameters come last: source-compatible, but code compiled against an earlier version must be recompiled. `SinkParquetAsync` / `WriteParquetAsync` keep their earlier signature too, for a cancellation token passed by position.
+
 ## Map type
 
 Polars 2.2's `map[key, value]` type in both APIs: a column of key-value entries, its keys never null.
@@ -96,7 +110,7 @@ A Parquet implementation of its own, for .NET code that reads or writes Parquet 
 
 ### New
 
-* **Files** (`ParquetFile`): from a path, memory (read in place), a stream, or any source of ranged reads, synchronously or asynchronously; the footer as `ParquetMetadata` and the schema as Arrow's. Memory mapping is chosen automatically. Encrypted files are refused by name.
+* **Files** (`ParquetFile`): from a path, memory (read in place), a stream, or any source of ranged reads, synchronously or asynchronously; the footer as `ParquetMetadata` and the schema as Arrow's. Memory mapping is chosen automatically. Files encrypted with Parquet modular encryption are read with their keys (see above).
 * **Reading** (`ParquetReader`, `ParquetReadOptions`): every column, flat or nested, as Arrow record batches, on all cores by default; every encoding Parquet writers use (dictionary, DELTA_*, BYTE_STREAM_SPLIT, RLE booleans) and codecs (Snappy, GZIP, Brotli, Zstandard, LZ4_RAW and the deprecated Hadoop LZ4; not LZO). Strings in Arrow's view layout by default. Row selection, a row index column and `MaxRows`.
 * **Pushdown**: a row filter prunes row groups by their statistics, Bloom filters and page indexes, and filters the rows read (late materialization: other columns decoded only for rows that pass). Strings are filtered by prefix, suffix and substring too (`StartsWith`, `EndsWith`, `Contains`, ordinal).
 * **Rows as objects**: `ParquetFile.OpenReader<T>(where)` / `ReadList<T>` read rows as records or classes (F# records and tuples too), the `where` lambda pushed into the read as the LINQ provider translates it.

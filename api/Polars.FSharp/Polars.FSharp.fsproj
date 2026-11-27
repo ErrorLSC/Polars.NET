@@ -73,6 +73,7 @@
     <Compile Include="IO/CSV/Write.fs" />
     <Compile Include="IO/JSON/Read.fs" />
     <Compile Include="IO/JSON/Write.fs" />
+    <Compile Include="IO/Parquet/Options.fs" />
     <Compile Include="IO/Parquet/Read.fs" />
     <Compile Include="IO/Parquet/Write.fs" />
     <Compile Include="IO/IPC/Read.fs" />

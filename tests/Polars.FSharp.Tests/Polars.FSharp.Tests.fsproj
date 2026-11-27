@@ -70,6 +70,7 @@
     <Compile Include="SqlExpressionTests.fs" />
     <Compile Include="SqlQueryTests.fs" />
     <Compile Include="SparkExpressionTests.fs" />
+    <Compile Include="ParquetEngineOptionsTests.fs" />
   </ItemGroup>
 
   <ItemGroup>

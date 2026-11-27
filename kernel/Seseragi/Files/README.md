@@ -36,8 +36,20 @@ copied into native memory first) or any `IRandomAccess` source (data read at off
 synchronously or asynchronously.
 The footer is read with one ranged read for most files (two when it is longer than 64 KiB); a file of up to 64 KiB is
 held whole by that read and never read again. The footer is checked: the schema
-tree must account for every element and each row group must hold a chunk per leaf. Encrypted files (modular
-encryption, `PARE` or a plaintext footer) are refused by name; damaged footers fail with `ParquetFormatException`.
+tree must account for every element and each row group must hold a chunk per leaf. Damaged footers fail with
+`ParquetFormatException`.
+
+**Encryption** (Parquet modular encryption, keys given directly): files are opened with `ParquetDecryptionOptions`
+(`ParquetFile.Open(..., decryption)`, `ParquetDatasetOptions.Decryption`) and written with
+`ParquetWriteOptions.Encryption` (`ParquetEncryptionOptions`): `AES_GCM_V1` and `AES_GCM_CTR_V1` (pages with AES-CTR),
+16-, 24- and 32-byte keys, uniform or by column (dot-separated paths; the other columns in plain), an encrypted
+footer (`PARE`) or a signed plaintext one, an AAD prefix stored or supplied. Every module is decrypted or sealed:
+the footer, column metadata, page headers and pages, column and offset indexes, Bloom filter headers and bitsets;
+statistics, page indexes and Bloom filters prune as in plain files. A file with a plaintext footer opens without
+keys (its columns that are not encrypted read); a column without its key can be left out of a read; an encrypted
+file opened without keys, a wrong key or AAD prefix, or a footer whose signature does not match is refused, naming
+the reason. AES-GCM is the BCL's; AES-CTR is made from its block cipher (Sazanami `Crypto/AesCtr`). Keys managed by a
+KMS are not unwrapped.
 One stream holds one file: data the footer does not describe before it (beyond the metadata copy some writers leave
 there, or zero padding) is refused as files joined together, a source cheap to read at its start must begin with
 `PAR1`, and column chunks reaching into the footer are refused when read.
@@ -874,6 +886,7 @@ written synchronously on completion.
 | `Ipc/IpcIO.cs` | Messages and bodies read at offsets (the needed ranges into native memory, or the mapping), decoding batches and dictionaries, errors as `IpcFormatException`. The codec itself is Sazanami's `Arrow/Ipc`: FlatBuffer metadata (`IpcMetadata`, `FlatBufferTable`), framing and ranges (`IpcFraming`), bodies (`IpcBody`: compressed buffers of a large batch decompressed side by side before the walk), the decoder (`IpcBatchDecoder`), checks (`IpcValidation`), dictionaries (`IpcDictionaries`, with snapshots for batches decoded ahead), arrays as native slices (`IpcArray`); LZ4 frames and Zstandard in `Compression`. |
 | `Parquet/ParquetMetadata.cs` | Parquet footer metadata (`ParquetMetadata`: schema elements, row groups, column statistics) parsed from the Thrift compact encoding: `Parse` (a footer), `FromFile` (a whole file in memory), `FooterRange` (where the footer lies, from a file's last bytes; reading them is the caller's, e.g. Lakehouse's `ParquetFooters` over its file systems). |
 | `Parquet/ParquetReaderOfT.cs`, `Parquet/TypedRows.cs`, `TypedRows.cs` | `ParquetReader<T>`: the rows as objects over Sazanami's `ArrowRowMapper<T>`; `TypedRows` (shared with `ParquetDatasetReader<T>` and `IpcReader<T>`; `ParquetTypedRows` maps Parquet's options onto it): the `where` predicate translated by Samidare and pushed into the read, the rest evaluated on the rows by the client policy; batches turned into rows in parallel (`OrderedParallel`), `ReadList` copying the batches' rows once into an exact-size list. |
+| `Parquet/ParquetDecryptionOptions.cs`, `ParquetEncryptionOptions.cs`, `Parquet/Encryption/` | Parquet modular encryption: the keys to read (`ParquetDecryptionOptions`) and how to write (`ParquetEncryptionOptions`, `ParquetEncryptionAlgorithm`); `FileDecryptor` (a file's algorithm, AAD and keys: footer decryption and signature check, column metadata, a `ColumnDecryptor` per chunk reader) and `FileEncryptor` (a random file id, which columns are encrypted with which key, footer sealing or signing, a `ColumnEncryptor` per chunk); `ModuleCipher` / `ModuleSeal` (a module's length, nonce, ciphertext and tag; its AAD of module type and ordinals). Pages are decrypted in `PageReader`, sealed when a row group is laid out (`ParquetWriter.SealPages`, the offset index rebuilt); `FooterBuilder` writes each chunk's `crypto_metadata` and `encrypted_column_metadata` (statistics left out of a plaintext footer). |
 | `Parquet/ReadBudget.cs` | The threads (one scheduler), scratch buffers and in-flight bytes several readers share when a dataset drives them unit by unit. |
 | `BatchOwnership.cs` | Who owns the batches given to a writer (Parquet's and Arrow IPC's): the caller, or the writer, which then encodes several side by side and disposes them. |
 | `Parquet/ParquetWriterOfT.cs`, `RowBatcher.cs` | `ParquetWriter<T>` over `RowBatcher<T>` (shared with `IpcWriter<T>`): rows gathered into native batches by Sazanami's `ArrowRowBuilder<T>` (an array's or a list's whole batches made in parallel by a pool of builders, up to its first null row, handed in order to the writer, which takes them with `BatchOwnership.Writer`); a refused value aborts the output. |

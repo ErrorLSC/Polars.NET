@@ -159,11 +159,10 @@ public class ParquetFileTests
     }
 
     [Fact]
-    public void PlaintextFooterEncryption_IsRefusedAtOpen_ButTheFooterParses()
+    public void PlaintextFooterEncryption_OpensWithoutKeys_ButTheFooterAloneIsRefused()
     {
         const string name = "apache/data/encrypt_columns_plaintext_footer.parquet.encrypted";
-        var e = Assert.Throws<ParquetFormatException>(() => ParquetFile.Open(ParquetFixtures.FullPath(name)));
-        Assert.Contains("plaintext footer", e.Message);
+        using (var file = ParquetFile.Open(ParquetFixtures.FullPath(name))) Assert.True(file.Metadata.IsEncrypted);
         Assert.NotNull(FileMetaData.Parse(ParquetFixtures.FooterBytes(name)).EncryptionAlgorithm);
         Assert.Contains("encrypted", Assert.Throws<ParquetFormatException>(() => ParquetMetadata.Parse(ParquetFixtures.FooterBytes(name))).Message);
     }

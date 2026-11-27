@@ -11,15 +11,17 @@ namespace Kaminari.Seseragi.Files.Parquet;
 /// </summary>
 internal sealed class ParquetFooter : IDisposable
 {
-    private NativeBufferWriter? _bytes; // the Thrift bytes, then their length and the magic: how the file ends
+    private NativeBufferWriter? _bytes; // the Thrift bytes, then how the file ends (from _tail on)
     private readonly int _length;
+    private readonly int _tail;
     private ParquetMetadata? _metadata;
     private static long s_held;
 
-    private ParquetFooter(NativeBufferWriter bytes, int length)
+    private ParquetFooter(NativeBufferWriter bytes, int length, int tail = 0)
     {
         _bytes = bytes;
         _length = length;
+        _tail = tail;
         Interlocked.Increment(ref s_held);
     }
 
@@ -41,6 +43,27 @@ internal sealed class ParquetFooter : IDisposable
         return new ParquetFooter(bytes, thrift.Length);
     }
 
+    /// <summary>Writes how an encrypted file ends (<paramref name="stored"/>) from its plaintext footer.</summary>
+    public delegate void StoredWriter(ReadOnlySpan<byte> thrift, Span<byte> stored);
+
+    /// <summary>
+    /// The footer of an encrypted file: its plaintext Thrift bytes (the metadata is parsed from them), and how the file
+    /// ends: <paramref name="storedLength"/> bytes <paramref name="writeStored"/> writes (a signed footer, or the crypto
+    /// metadata and the encrypted footer), their length and <paramref name="magic"/>.
+    /// </summary>
+    public static ParquetFooter Encrypted(ReadOnlySpan<byte> thrift, int storedLength, StoredWriter writeStored, ReadOnlySpan<byte> magic)
+    {
+        int size = thrift.Length + storedLength + 8;
+        var bytes = new NativeBufferWriter(size);
+        Span<byte> all = bytes.GetSpan(size);
+        thrift.CopyTo(all);
+        writeStored(all[..thrift.Length], all.Slice(thrift.Length, storedLength));
+        BinaryPrimitives.WriteInt32LittleEndian(all[(thrift.Length + storedLength)..], storedLength);
+        magic.CopyTo(all[(size - 4)..]);
+        bytes.Advance(size);
+        return new ParquetFooter(bytes, thrift.Length, thrift.Length);
+    }
+
     /// <summary>Whether the Thrift bytes are held (a footer as written, not disposed).</summary>
     public bool HasBytes => _bytes is not null;
 
@@ -48,7 +71,7 @@ internal sealed class ParquetFooter : IDisposable
     public ReadOnlySpan<byte> Thrift => _bytes is { } bytes ? bytes.WrittenSpan[.._length] : [];
 
     /// <summary>How the file ends: the Thrift bytes, their length and the magic.</summary>
-    public ReadOnlyMemory<byte> FileTail => (_bytes ?? throw new ObjectDisposedException(nameof(ParquetFooter))).WrittenMemory;
+    public ReadOnlyMemory<byte> FileTail => (_bytes ?? throw new ObjectDisposedException(nameof(ParquetFooter))).WrittenMemory[_tail..];
 
     /// <summary>The metadata, parsed from the bytes when first asked for.</summary>
     /// <exception cref="ObjectDisposedException">The bytes were freed before the metadata was asked for.</exception>

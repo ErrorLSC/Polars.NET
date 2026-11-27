@@ -464,7 +464,7 @@ public sealed class ParquetDatasetReader : IDisposable, IAsyncDisposable
     /// <summary>Opens a file (its footer from before when there is one, kept for the next reads when worth it).</summary>
     private async ValueTask<ParquetFile> OpenAsync(int index, bool useAsync, CancellationToken ct)
     {
-        return await ParquetDataset.OpenFileAsync(_dataset.Store, _dataset.Files[index], _dataset.Footer(index), useAsync, ct, _dataset.Footers, index, _dataset.Interner).ConfigureAwait(false);
+        return await ParquetDataset.OpenFileAsync(_dataset.Store, _dataset.Files[index], _dataset.Footer(index), _dataset.Options.Decryption, useAsync, ct, _dataset.Footers, index, _dataset.Interner).ConfigureAwait(false);
     }
 
     /// <summary>A file's row count as its reader numbers rows (the row groups' counts).</summary>

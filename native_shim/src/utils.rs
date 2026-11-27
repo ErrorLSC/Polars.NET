@@ -2,7 +2,6 @@ use std::ffi::{CStr, c_char, c_void};
 use polars::frame::UniqueKeepStrategy;
 use polars::prelude::{AsofStrategy, ClosedInterval, Expr, JoinBuildSide, JoinCoalesce, JoinType, JoinValidation, MaintainOrderJoin, ParallelStrategy, PlSmallStr, SchemaRef, TimeUnit};
 use polars::prelude::ClosedWindow;
-use polars_io::ExternalCompression;
 use polars_io::utils::sync_on_close::SyncOnCloseType;
 
 use crate::types::{ExprContext,SchemaContext};
@@ -106,14 +105,6 @@ pub(crate) unsafe fn ptr_to_schema_ref(ptr: *mut SchemaContext) -> Option<Schema
     } else {
         let ctx = unsafe { &*ptr };
         Some(ctx.schema.clone())
-    }
-}
-
-pub(crate) unsafe fn ptr_to_opt_pl_str(ptr: *const c_char) -> Option<PlSmallStr> {
-    if ptr.is_null() {
-        None
-    } else {
-        ptr_to_str(ptr).ok().map(PlSmallStr::from_str)
     }
 }
 
@@ -265,31 +256,6 @@ pub(crate) fn parse_closed_interval(val: u8) -> ClosedInterval {
         2 => ClosedInterval::Both,
         3 => ClosedInterval::None,
         _ => ClosedInterval::Both, 
-    }
-}
-
-#[inline]
-pub(crate) fn map_external_compression(
-    compression_code: u8, 
-    compression_level: i32
-) -> ExternalCompression {
-
-    let get_level = || -> Option<u32> {
-        if compression_level >= 0 {
-            Some(compression_level as u32)
-        } else {
-            None
-        }
-    };
-
-    match compression_code {
-        1 => ExternalCompression::Gzip {
-            level: get_level(),
-        },
-        2 => ExternalCompression::Zstd {
-            level: get_level(),
-        },
-        _ => ExternalCompression::Uncompressed,
     }
 }
 

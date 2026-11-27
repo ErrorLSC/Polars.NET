@@ -5,6 +5,7 @@ use polars_io::{HiveOptions, RowIndex};
 use std::os::raw::c_char;
 use crate::pl_io::io_utils::build_cloud_options;
 use crate::types::SchemaContext;
+use crate::pl_io::parquet::options::ParquetWriteExtrasContext;
 use crate::utils::{ map_parallel_strategy,ptr_to_schema_ref, ptr_to_str};
 
 
@@ -98,6 +99,7 @@ pub(crate) fn build_parquet_write_options(
     row_group_size: usize,
     data_page_size: usize,
     compat_level: i32,      // -1: Default(None), 0: Oldest, 1: Newest
+    extras: ParquetWriteExtrasContext,
 ) -> PolarsResult<Arc<ParquetWriteOptions>> {
     
     // 1. Map Compression Options 
@@ -162,10 +164,10 @@ pub(crate) fn build_parquet_write_options(
         statistics: stats_opts,
         row_group_size: if row_group_size > 0 { Some(row_group_size) } else { None },
         data_page_size: if data_page_size > 0 { Some(data_page_size) } else { None },
-        key_value_metadata: None, 
-        arrow_schema: None,
+        key_value_metadata: extras.key_value_metadata,
+        arrow_schema: extras.arrow_schema,
         compat_level: compat_opt,
-        encryption: None,
+        encryption: extras.encryption,
     };
 
     Ok(Arc::new(options))

@@ -20,7 +20,7 @@ module ParquetWrite =
         /// <param name="path">Path to the output file.</param>
         /// <param name="compression">Compression codec to use.</param>
         /// <param name="compressionLevel">Compression level (depends on the codec).</param>
-        /// <param name="statistics">Write statistics to the parquet file.</param>
+        /// <param name="statistics">Write column statistics (min, max, null count) to the file (default: true).</param>
         /// <param name="rowGroupSize">Target row group size (in rows).</param>
         /// <param name="dataPageSize">Target data page size (in bytes).</param>
         /// <param name="compatLevel">IPC format compatibility, -1: oldest, 0: default, 1: newest.</param>
@@ -28,6 +28,9 @@ module ParquetWrite =
         /// <param name="syncOnClose">Whether to sync the file to disk on close.</param>
         /// <param name="mkdir">Create parent directories if they don't exist (Local file system only).</param>
         /// <param name="cloudOptions">Options for cloud storage (AWS S3, Azure Blob, GCS, etc.).</param>
+        /// <param name="metadata">Key-value metadata written into the file footer.</param>
+        /// <param name="arrowSchema">The Arrow schema stored in the file (field metadata, extension types); its names and types must match the data's (unstable in the engine).</param>
+        /// <param name="encryption">Encrypt the files with Parquet modular encryption (experimental).</param>
         member this.SinkParquet(
             path: string,
             ?compression: ParquetCompression,
@@ -39,12 +42,15 @@ module ParquetWrite =
             ?maintainOrder: bool,
             ?syncOnClose: SyncOnClose,
             ?mkdir: bool,
-            ?cloudOptions: CloudOptions
+            ?cloudOptions: CloudOptions,
+            ?metadata: Map<string, string>,
+            ?arrowSchema: Apache.Arrow.Schema,
+            ?encryption: ParquetEncryption
         ) =
             // 1. Resolve Defaults
             let comp = defaultArg compression ParquetCompression.Snappy
             let compLevel = defaultArg compressionLevel -1
-            let stats = defaultArg statistics false
+            let stats = defaultArg statistics true
             let rgs = defaultArg rowGroupSize 0
             let dps = defaultArg dataPageSize 0
             let compat = defaultArg compatLevel -1
@@ -56,7 +62,7 @@ module ParquetWrite =
             let cProv, cRet, cToMs, cInitMs, cMaxMs, cCache, cKeys, cVals = 
                 CloudOptions.ParseCloudOptions cloudOptions
 
-            // 3. Native Call
+            use extras = ParquetNativeOptions.write metadata arrowSchema encryption
             PolarsWrapper.SinkParquet(
                 this.CloneHandle(), 
                 path,
@@ -77,7 +83,8 @@ module ParquetWrite =
                 cMaxMs,
                 cCache,
                 cKeys,
-                cVals
+                cVals,
+                extras
             )
 
         /// <summary>
@@ -103,7 +110,10 @@ module ParquetWrite =
             ?maintainOrder: bool,
             ?syncOnClose: SyncOnClose,
             ?mkdir: bool,
-            ?cloudOptions: CloudOptions
+            ?cloudOptions: CloudOptions,
+            ?metadata: Map<string, string>,
+            ?arrowSchema: Apache.Arrow.Schema,
+            ?encryption: ParquetEncryption
         ) =
             // 1. Resolve Defaults
             let incKeys = defaultArg includeKeys true
@@ -113,7 +123,7 @@ module ParquetWrite =
 
             let comp = defaultArg compression ParquetCompression.Snappy
             let compLevel = defaultArg compressionLevel -1
-            let stats = defaultArg statistics false
+            let stats = defaultArg statistics true
             let rgs = defaultArg rowGroupSize 0
             let dps = defaultArg dataPageSize 0
             let compat = defaultArg compatLevel -1
@@ -129,7 +139,7 @@ module ParquetWrite =
             let cProv, cRet, cToMs, cInitMs, cMaxMs, cCache, cKeys, cVals = 
                 CloudOptions.ParseCloudOptions cloudOptions
 
-            // 4. Native Call
+            use extras = ParquetNativeOptions.write metadata arrowSchema encryption
             PolarsWrapper.SinkParquetPartitioned(
                 this.CloneHandle(), 
                 path,
@@ -155,7 +165,8 @@ module ParquetWrite =
                 cMaxMs,
                 cCache,
                 cKeys,
-                cVals
+                cVals,
+                extras
             )
 
         /// <summary>
@@ -172,7 +183,10 @@ module ParquetWrite =
             ?rowGroupSize: int,
             ?dataPageSize: int,
             ?compatLevel: int,
-            ?maintainOrder: bool
+            ?maintainOrder: bool,
+            ?metadata: Map<string, string>,
+            ?arrowSchema: Apache.Arrow.Schema,
+            ?encryption: ParquetEncryption
         ) : byte[] =
             // Note: For Memory Sink, ZSTD and Level 3 are the typical defaults used in the C# wrapper
             let comp = defaultArg compression ParquetCompression.Zstd
@@ -183,6 +197,7 @@ module ParquetWrite =
             let compat = defaultArg compatLevel -1
             let mo = defaultArg maintainOrder true
 
+            use extras = ParquetNativeOptions.write metadata arrowSchema encryption
             PolarsWrapper.SinkParquetMemory(
                 this.CloneHandle(),
                 comp.ToNative(),
@@ -191,7 +206,8 @@ module ParquetWrite =
                 rgs,
                 dps,
                 compat,
-                mo
+                mo,
+                extras
             )
 
         /// <summary>
@@ -205,7 +221,10 @@ module ParquetWrite =
             ?rowGroupSize: int,
             ?dataPageSize: int,
             ?compatLevel: int,
-            ?maintainOrder: bool
+            ?maintainOrder: bool,
+            ?metadata: Map<string, string>,
+            ?arrowSchema: Apache.Arrow.Schema,
+            ?encryption: ParquetEncryption
         ) : Polars.NET.Core.NativeBuffer =
             // Note: For Memory Sink, ZSTD and Level 3 are the typical defaults used in the C# wrapper
             let comp = defaultArg compression ParquetCompression.Zstd
@@ -216,6 +235,7 @@ module ParquetWrite =
             let compat = defaultArg compatLevel -1
             let mo = defaultArg maintainOrder true
 
+            use extras = ParquetNativeOptions.write metadata arrowSchema encryption
             PolarsWrapper.SinkParquetNativeMemory(
                 this.CloneHandle(),
                 comp.ToNative(),
@@ -224,7 +244,8 @@ module ParquetWrite =
                 rgs,
                 dps,
                 compat,
-                mo
+                mo,
+                extras
             )
         /// <summary>
         /// Sink the LazyFrame to a Parquet format written into a <see cref="T:System.IO.Stream"/>.
@@ -238,7 +259,10 @@ module ParquetWrite =
             ?rowGroupSize: int,
             ?dataPageSize: int,
             ?compatLevel: int,
-            ?maintainOrder: bool
+            ?maintainOrder: bool,
+            ?metadata: Map<string, string>,
+            ?arrowSchema: Apache.Arrow.Schema,
+            ?encryption: ParquetEncryption
         ) : unit =
             // Same defaults as SinkParquetMemory
             let comp = (defaultArg compression ParquetCompression.Zstd).ToNative()
@@ -248,9 +272,10 @@ module ParquetWrite =
             let dps = defaultArg dataPageSize 0
             let compat = defaultArg compatLevel -1
             let mo = defaultArg maintainOrder true
+            use extras = ParquetNativeOptions.write metadata arrowSchema encryption
             let handle = this.CloneHandle()
             NativeStreamWriter.Write(stream, fun target ->
-                PolarsWrapper.SinkParquetCallback(handle, target, comp, compLevel, stats, rgs, dps, compat, mo))
+                PolarsWrapper.SinkParquetCallback(handle, target, comp, compLevel, stats, rgs, dps, compat, mo, extras))
 
         /// <summary>
         /// Asynchronously sink the LazyFrame to a Parquet format written into a <see cref="T:System.IO.Stream"/>.
@@ -266,6 +291,9 @@ module ParquetWrite =
             ?dataPageSize: int,
             ?compatLevel: int,
             ?maintainOrder: bool,
+            ?metadata: Map<string, string>,
+            ?arrowSchema: Apache.Arrow.Schema,
+            ?encryption: ParquetEncryption,
             ?cancellationToken: CancellationToken
         ) : Task =
             let comp = (defaultArg compression ParquetCompression.Zstd).ToNative()
@@ -276,9 +304,16 @@ module ParquetWrite =
             let compat = defaultArg compatLevel -1
             let mo = defaultArg maintainOrder true
             let ct = defaultArg cancellationToken CancellationToken.None
+            let extras = ParquetNativeOptions.write metadata arrowSchema encryption
             let handle = this.CloneHandle()
-            NativeStreamWriter.WriteAsync(stream, (fun target ->
-                PolarsWrapper.SinkParquetCallback(handle, target, comp, compLevel, stats, rgs, dps, compat, mo)), ct)
+            let write =
+                NativeStreamWriter.WriteAsync(stream, (fun target ->
+                    PolarsWrapper.SinkParquetCallback(handle, target, comp, compLevel, stats, rgs, dps, compat, mo, extras)), ct)
+            // The background write borrows the options: release them once it is over.
+            task {
+                try do! write
+                finally if not (isNull extras) then extras.Dispose()
+            } :> Task
 
         /// <summary>
         /// Asynchronously sink the LazyFrame to a Parquet format written into a <see cref="T:System.IO.Pipelines.PipeWriter"/>.
@@ -293,6 +328,9 @@ module ParquetWrite =
             ?dataPageSize: int,
             ?compatLevel: int,
             ?maintainOrder: bool,
+            ?metadata: Map<string, string>,
+            ?arrowSchema: Apache.Arrow.Schema,
+            ?encryption: ParquetEncryption,
             ?cancellationToken: CancellationToken
         ) : Task =
             let comp = (defaultArg compression ParquetCompression.Zstd).ToNative()
@@ -303,9 +341,16 @@ module ParquetWrite =
             let compat = defaultArg compatLevel -1
             let mo = defaultArg maintainOrder true
             let ct = defaultArg cancellationToken CancellationToken.None
+            let extras = ParquetNativeOptions.write metadata arrowSchema encryption
             let handle = this.CloneHandle()
-            NativeStreamWriter.WriteAsync(writer, (fun target ->
-                PolarsWrapper.SinkParquetCallback(handle, target, comp, compLevel, stats, rgs, dps, compat, mo)), ct)
+            let write =
+                NativeStreamWriter.WriteAsync(writer, (fun target ->
+                    PolarsWrapper.SinkParquetCallback(handle, target, comp, compLevel, stats, rgs, dps, compat, mo, extras)), ct)
+            // The background write borrows the options: release them once it is over.
+            task {
+                try do! write
+                finally if not (isNull extras) then extras.Dispose()
+            } :> Task
 
     type DataFrame with
     /// <summary>
@@ -325,7 +370,10 @@ module ParquetWrite =
             ?maintainOrder: bool,
             ?syncOnClose: SyncOnClose,
             ?mkdir: bool,
-            ?cloudOptions: CloudOptions
+            ?cloudOptions: CloudOptions,
+            ?metadata: Map<string, string>,
+            ?arrowSchema: Apache.Arrow.Schema,
+            ?encryption: ParquetEncryption
         ) =
             this.Lazy().SinkParquet(
                 path,
@@ -338,7 +386,10 @@ module ParquetWrite =
                 ?maintainOrder = maintainOrder,
                 ?syncOnClose = syncOnClose,
                 ?mkdir = mkdir,
-                ?cloudOptions = cloudOptions
+                ?cloudOptions = cloudOptions,
+                ?metadata = metadata,
+                ?arrowSchema = arrowSchema,
+                ?encryption = encryption
             )
             this
         /// <summary>
@@ -363,7 +414,10 @@ module ParquetWrite =
             ?maintainOrder: bool,
             ?syncOnClose: SyncOnClose,
             ?mkdir: bool,
-            ?cloudOptions: CloudOptions
+            ?cloudOptions: CloudOptions,
+            ?metadata: Map<string, string>,
+            ?arrowSchema: Apache.Arrow.Schema,
+            ?encryption: ParquetEncryption
         ) =
             this.Lazy().SinkParquetPartitioned(
                 path,
@@ -381,7 +435,10 @@ module ParquetWrite =
                 ?maintainOrder = maintainOrder,
                 ?syncOnClose = syncOnClose,
                 ?mkdir = mkdir,
-                ?cloudOptions = cloudOptions
+                ?cloudOptions = cloudOptions,
+                ?metadata = metadata,
+                ?arrowSchema = arrowSchema,
+                ?encryption = encryption
             )
             this
         /// <summary>
@@ -395,7 +452,10 @@ module ParquetWrite =
             ?rowGroupSize: int,
             ?dataPageSize: int,
             ?compatLevel: int,
-            ?maintainOrder: bool
+            ?maintainOrder: bool,
+            ?metadata: Map<string, string>,
+            ?arrowSchema: Apache.Arrow.Schema,
+            ?encryption: ParquetEncryption
         ) : byte[] =
             this.Lazy().SinkParquetMemory(
                 ?compression = compression,
@@ -404,7 +464,10 @@ module ParquetWrite =
                 ?rowGroupSize = rowGroupSize,
                 ?dataPageSize = dataPageSize,
                 ?compatLevel = compatLevel,
-                ?maintainOrder = maintainOrder
+                ?maintainOrder = maintainOrder,
+                ?metadata = metadata,
+                ?arrowSchema = arrowSchema,
+                ?encryption = encryption
             )
 
         /// <summary>
@@ -418,7 +481,10 @@ module ParquetWrite =
             ?rowGroupSize: int,
             ?dataPageSize: int,
             ?compatLevel: int,
-            ?maintainOrder: bool
+            ?maintainOrder: bool,
+            ?metadata: Map<string, string>,
+            ?arrowSchema: Apache.Arrow.Schema,
+            ?encryption: ParquetEncryption
         ) : Polars.NET.Core.NativeBuffer =
             this.Lazy().SinkParquetNativeMemory(
                 ?compression = compression,
@@ -427,7 +493,10 @@ module ParquetWrite =
                 ?rowGroupSize = rowGroupSize,
                 ?dataPageSize = dataPageSize,
                 ?compatLevel = compatLevel,
-                ?maintainOrder = maintainOrder
+                ?maintainOrder = maintainOrder,
+                ?metadata = metadata,
+                ?arrowSchema = arrowSchema,
+                ?encryption = encryption
             )
 
         /// <summary>
@@ -443,7 +512,10 @@ module ParquetWrite =
             ?rowGroupSize: int,
             ?dataPageSize: int,
             ?compatLevel: int,
-            ?maintainOrder: bool
+            ?maintainOrder: bool,
+            ?metadata: Map<string, string>,
+            ?arrowSchema: Apache.Arrow.Schema,
+            ?encryption: ParquetEncryption
         ) : DataFrame =
             this.Lazy().SinkParquet(
                 stream,
@@ -453,7 +525,10 @@ module ParquetWrite =
                 ?rowGroupSize = rowGroupSize,
                 ?dataPageSize = dataPageSize,
                 ?compatLevel = compatLevel,
-                ?maintainOrder = maintainOrder
+                ?maintainOrder = maintainOrder,
+                ?metadata = metadata,
+                ?arrowSchema = arrowSchema,
+                ?encryption = encryption
             )
             this
 
@@ -470,6 +545,9 @@ module ParquetWrite =
             ?dataPageSize: int,
             ?compatLevel: int,
             ?maintainOrder: bool,
+            ?metadata: Map<string, string>,
+            ?arrowSchema: Apache.Arrow.Schema,
+            ?encryption: ParquetEncryption,
             ?cancellationToken: CancellationToken
         ) : Task =
             this.Lazy().SinkParquetAsync(
@@ -481,6 +559,9 @@ module ParquetWrite =
                 ?dataPageSize = dataPageSize,
                 ?compatLevel = compatLevel,
                 ?maintainOrder = maintainOrder,
+                ?metadata = metadata,
+                ?arrowSchema = arrowSchema,
+                ?encryption = encryption,
                 ?cancellationToken = cancellationToken
             )
 
@@ -497,6 +578,9 @@ module ParquetWrite =
             ?dataPageSize: int,
             ?compatLevel: int,
             ?maintainOrder: bool,
+            ?metadata: Map<string, string>,
+            ?arrowSchema: Apache.Arrow.Schema,
+            ?encryption: ParquetEncryption,
             ?cancellationToken: CancellationToken
         ) : Task =
             this.Lazy().SinkParquetAsync(
@@ -508,5 +592,8 @@ module ParquetWrite =
                 ?dataPageSize = dataPageSize,
                 ?compatLevel = compatLevel,
                 ?maintainOrder = maintainOrder,
+                ?metadata = metadata,
+                ?arrowSchema = arrowSchema,
+                ?encryption = encryption,
                 ?cancellationToken = cancellationToken
             )

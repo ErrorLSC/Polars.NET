@@ -114,6 +114,12 @@ public sealed record ParquetWriteOptions
     public IReadOnlyDictionary<string, string>? Metadata { get; init; }
 
     /// <summary>
+    /// Encrypt the file with Parquet modular encryption (see <see cref="ParquetEncryptionOptions"/>); null (the
+    /// default) writes it in plain. Each file a writer or sink writes gets a file id and nonces of its own.
+    /// </summary>
+    public ParquetEncryptionOptions? Encryption { get; init; }
+
+    /// <summary>
     /// The most threads the writer keeps busy encoding column chunks and compressing pages (the processor count by
     /// default; 1 writes on the caller's thread alone). The file is the same, byte for byte, whatever the number.
     /// </summary>

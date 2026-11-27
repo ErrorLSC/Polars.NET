@@ -690,6 +690,25 @@ internal sealed class ColumnMetaData
     public SizeStatistics? SizeStatistics { get; init; }
     public GeospatialStatistics? GeospatialStatistics { get; init; }
 
+    /// <summary>A copy without the statistics, for a plaintext footer of an encrypted column (they go into its encrypted metadata).</summary>
+    public ColumnMetaData WithoutStatistics() => new()
+    {
+        Type = Type,
+        Encodings = Encodings,
+        PathInSchema = PathInSchema,
+        Codec = Codec,
+        NumValues = NumValues,
+        TotalUncompressedSize = TotalUncompressedSize,
+        TotalCompressedSize = TotalCompressedSize,
+        KeyValueMetadata = KeyValueMetadata,
+        DataPageOffset = DataPageOffset,
+        IndexPageOffset = IndexPageOffset,
+        DictionaryPageOffset = DictionaryPageOffset,
+        EncodingStats = EncodingStats,
+        BloomFilterOffset = BloomFilterOffset,
+        BloomFilterLength = BloomFilterLength,
+    };
+
     public static ColumnMetaData Read(ref ThriftCompactReader r)
     {
         r.EnterStruct();

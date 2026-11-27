@@ -1,4 +1,5 @@
 #pragma warning disable CS1573
+using System.ComponentModel;
 using System.IO.Pipelines;
 using Polars.NET.Core;
 using Polars.NET.Core.Wrappers;
@@ -17,7 +18,7 @@ public partial class LazyFrame : IDisposable
     /// <param name="path">Path to the output file.</param>
     /// <param name="compression">Compression codec to use.</param>
     /// <param name="compressionLevel">Compression level (depends on the codec).</param>
-    /// <param name="statistics">Write statistics to the parquet file.</param>
+    /// <param name="statistics">Write column statistics (min, max, null count) to the file (default: true).</param>
     /// <param name="rowGroupSize">Target row group size (in rows).</param>
     /// <param name="dataPageSize">Target data page size (in bytes).</param>
     /// <param name="compatLevel">IPC format compatibility, -1: oldest, 0: default, 1: newest.</param>
@@ -25,19 +26,26 @@ public partial class LazyFrame : IDisposable
     /// <param name="syncOnClose">Whether to sync the file to disk on close.</param>
     /// <param name="mkdir">Create parent directories if they don't exist (Local file system only).</param>
     /// <param name="cloudOptions">Options for cloud storage (AWS S3, Azure Blob, GCS, etc.).</param>
+    /// <param name="metadata">Key-value metadata written into the file footer.</param>
+    /// <param name="arrowSchema">The Arrow schema stored in the file (field metadata, extension types); its names and types must match the data's (unstable in the engine).</param>
+    /// <param name="encryption">Encrypt the files with Parquet modular encryption (experimental).</param>
     public void SinkParquet(
         string path,
         ParquetCompression compression = ParquetCompression.Snappy,
         int compressionLevel = -1,
-        bool statistics = false,
+        bool statistics = true,
         int rowGroupSize = 0,
         int dataPageSize = 0,
         int compatLevel = -1,
         bool maintainOrder = true,
         SyncOnClose syncOnClose = SyncOnClose.None,
         bool mkdir = false,
-        CloudOptions? cloudOptions = null)
+        CloudOptions? cloudOptions = null,
+        IReadOnlyDictionary<string, string>? metadata = null,
+        Apache.Arrow.Schema? arrowSchema = null,
+        ParquetEncryption? encryption = null)
     {
+        using var extras = ParquetNativeOptions.Write(metadata, arrowSchema, encryption);
         var (provider, retries, retryTimeoutMs, retryInitBackoffMs, retryMaxBackoffMs, cacheTtl, keys, values) = CloudOptions.ParseCloudOptions(cloudOptions);
 
         PolarsWrapper.SinkParquet(
@@ -59,7 +67,8 @@ public partial class LazyFrame : IDisposable
             retryMaxBackoffMs,
             cacheTtl,
             keys,
-            values
+            values,
+            extras
         );
     }
     /// <summary>
@@ -80,7 +89,7 @@ public partial class LazyFrame : IDisposable
     /// <param name="approxBytesPerFile">Approximate size in bytes per file. 0 means no limit.</param>
     /// <param name="compression">Compression codec to use.</param>
     /// <param name="compressionLevel">Compression level (depends on the codec).</param>
-    /// <param name="statistics">Write statistics to the parquet file.</param>
+    /// <param name="statistics">Write column statistics (min, max, null count) to the file (default: true).</param>
     /// <param name="rowGroupSize">Target row group size (in rows).</param>
     /// <param name="dataPageSize">Target data page size (in bytes).</param>
     /// <param name="compatLevel">IPC format compatibility, -1: oldest, 0: default, 1: newest.</param>
@@ -88,6 +97,9 @@ public partial class LazyFrame : IDisposable
     /// <param name="syncOnClose">Whether to sync the file to disk on close.</param>
     /// <param name="mkdir">Create parent directories if they don't exist (Local file system only).</param>
     /// <param name="cloudOptions">Options for cloud storage (AWS S3, Azure Blob, GCS, etc.).</param>
+    /// <param name="metadata">Key-value metadata written into the file footer.</param>
+    /// <param name="arrowSchema">The Arrow schema stored in the file (field metadata, extension types); its names and types must match the data's (unstable in the engine).</param>
+    /// <param name="encryption">Encrypt the files with Parquet modular encryption (experimental).</param>
     public void SinkParquetPartitioned(
         string path,
         IntoSelector partitionBy,
@@ -97,15 +109,19 @@ public partial class LazyFrame : IDisposable
         long approxBytesPerFile = 0,
         ParquetCompression compression = ParquetCompression.Snappy,
         int compressionLevel = -1,
-        bool statistics = false,
+        bool statistics = true,
         int rowGroupSize = 0,
         int dataPageSize = 0,
         int compatLevel = -1,
         bool maintainOrder = true,
         SyncOnClose syncOnClose = SyncOnClose.None,
         bool mkdir = false,
-        CloudOptions? cloudOptions = null)
+        CloudOptions? cloudOptions = null,
+        IReadOnlyDictionary<string, string>? metadata = null,
+        Apache.Arrow.Schema? arrowSchema = null,
+        ParquetEncryption? encryption = null)
     {
+        using var extras = ParquetNativeOptions.Write(metadata, arrowSchema, encryption);
         var pby = partitionBy.Consume();
         // Parse cloud options using the helper
         var (provider, retries, retryTimeoutMs, retryInitBackoffMs, retryMaxBackoffMs, cacheTtl, keys, values) = CloudOptions.ParseCloudOptions(cloudOptions);
@@ -142,7 +158,8 @@ public partial class LazyFrame : IDisposable
             retryMaxBackoffMs,
             cacheTtl,
             keys,
-            values
+            values,
+            extras
         );
     }
     /// <summary>
@@ -151,6 +168,7 @@ public partial class LazyFrame : IDisposable
     /// This allows for streaming execution directly into a byte array without writing to disk.
     /// </para>
     /// </summary>
+    /// <inheritdoc cref="SinkParquet(Stream, ParquetCompression, int, bool, int, int, int, bool, IReadOnlyDictionary{string, string}, Apache.Arrow.Schema, ParquetEncryption)"/>
     public byte[] SinkParquetMemory(
         ParquetCompression compression = ParquetCompression.ZSTD,
         int compressionLevel = 3,
@@ -158,8 +176,12 @@ public partial class LazyFrame : IDisposable
         int rowGroupSize = 0,
         int dataPageSize = 0,
         int compatLevel = -1,
-        bool maintainOrder = true)
+        bool maintainOrder = true,
+        IReadOnlyDictionary<string, string>? metadata = null,
+        Apache.Arrow.Schema? arrowSchema = null,
+        ParquetEncryption? encryption = null)
     {
+        using var extras = ParquetNativeOptions.Write(metadata, arrowSchema, encryption);
         return PolarsWrapper.SinkParquetMemory(
             CloneHandle(),
             compression.ToNative(),
@@ -168,7 +190,8 @@ public partial class LazyFrame : IDisposable
             rowGroupSize,
             dataPageSize,
             compatLevel,
-            maintainOrder
+            maintainOrder,
+            extras
         );
     }
     /// <summary>
@@ -177,6 +200,7 @@ public partial class LazyFrame : IDisposable
     /// <returns>
     /// A <see cref="NativeBuffer"/> owning the serialized Parquet data. Dispose it to release the native memory.
     /// </returns>
+    /// <inheritdoc cref="SinkParquet(Stream, ParquetCompression, int, bool, int, int, int, bool, IReadOnlyDictionary{string, string}, Apache.Arrow.Schema, ParquetEncryption)"/>
     public NativeBuffer SinkParquetNativeMemory(
         ParquetCompression compression = ParquetCompression.ZSTD,
         int compressionLevel = 3,
@@ -184,8 +208,12 @@ public partial class LazyFrame : IDisposable
         int rowGroupSize = 0,
         int dataPageSize = 0,
         int compatLevel = -1,
-        bool maintainOrder = true)
+        bool maintainOrder = true,
+        IReadOnlyDictionary<string, string>? metadata = null,
+        Apache.Arrow.Schema? arrowSchema = null,
+        ParquetEncryption? encryption = null)
     {
+        using var extras = ParquetNativeOptions.Write(metadata, arrowSchema, encryption);
         return PolarsWrapper.SinkParquetNativeMemory(
             CloneHandle(),
             compression.ToNative(),
@@ -194,7 +222,8 @@ public partial class LazyFrame : IDisposable
             rowGroupSize,
             dataPageSize,
             compatLevel,
-            maintainOrder
+            maintainOrder,
+            extras
         );
     }
     /// <summary>
@@ -207,11 +236,14 @@ public partial class LazyFrame : IDisposable
     /// <param name="stream">Writable destination stream.</param>
     /// <param name="compression">Compression codec to use.</param>
     /// <param name="compressionLevel">Compression level (depends on the codec).</param>
-    /// <param name="statistics">Write statistics to the parquet file.</param>
+    /// <param name="statistics">Write column statistics (min, max, null count) to the file (default: true).</param>
     /// <param name="rowGroupSize">Target row group size (in rows).</param>
     /// <param name="dataPageSize">Target data page size (in bytes).</param>
     /// <param name="compatLevel">IPC format compatibility, -1: oldest, 0: default, 1: newest.</param>
     /// <param name="maintainOrder">Maintain the order of the data.</param>
+    /// <param name="metadata">Key-value metadata written into the file footer.</param>
+    /// <param name="arrowSchema">The Arrow schema stored in the file (field metadata, extension types); its names and types must match the data's (unstable in the engine).</param>
+    /// <param name="encryption">Encrypt the files with Parquet modular encryption (experimental).</param>
     public void SinkParquet(
         Stream stream,
         ParquetCompression compression = ParquetCompression.ZSTD,
@@ -220,12 +252,16 @@ public partial class LazyFrame : IDisposable
         int rowGroupSize = 0,
         int dataPageSize = 0,
         int compatLevel = -1,
-        bool maintainOrder = true)
+        bool maintainOrder = true,
+        IReadOnlyDictionary<string, string>? metadata = null,
+        Apache.Arrow.Schema? arrowSchema = null,
+        ParquetEncryption? encryption = null)
     {
         ArgumentNullException.ThrowIfNull(stream);
+        using var extras = ParquetNativeOptions.Write(metadata, arrowSchema, encryption);
         var handle = CloneHandle();
         NativeStreamWriter.Write(stream, target => PolarsWrapper.SinkParquetCallback(
-            handle, target, compression.ToNative(), compressionLevel, statistics, rowGroupSize, dataPageSize, compatLevel, maintainOrder));
+            handle, target, compression.ToNative(), compressionLevel, statistics, rowGroupSize, dataPageSize, compatLevel, maintainOrder, extras));
     }
 
     /// <summary>
@@ -236,7 +272,7 @@ public partial class LazyFrame : IDisposable
     /// The stream is flushed but not disposed.
     /// </para>
     /// </summary>
-    /// <inheritdoc cref="SinkParquet(Stream, ParquetCompression, int, bool, int, int, int, bool)"/>
+    /// <inheritdoc cref="SinkParquet(Stream, ParquetCompression, int, bool, int, int, int, bool, IReadOnlyDictionary{string, string}, Apache.Arrow.Schema, ParquetEncryption)"/>
     /// <param name="cancellationToken">Cancels writing; the native query is aborted at its next write.</param>
     public Task SinkParquetAsync(
         Stream stream,
@@ -247,13 +283,17 @@ public partial class LazyFrame : IDisposable
         int dataPageSize = 0,
         int compatLevel = -1,
         bool maintainOrder = true,
+        IReadOnlyDictionary<string, string>? metadata = null,
+        Apache.Arrow.Schema? arrowSchema = null,
+        ParquetEncryption? encryption = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(stream);
+        var extras = ParquetNativeOptions.Write(metadata, arrowSchema, encryption);
         var handle = CloneHandle();
-        return NativeStreamWriter.WriteAsync(stream, target => PolarsWrapper.SinkParquetCallback(
-            handle, target, compression.ToNative(), compressionLevel, statistics, rowGroupSize, dataPageSize, compatLevel, maintainOrder),
-            cancellationToken);
+        return DisposeWhenDone(NativeStreamWriter.WriteAsync(stream, target => PolarsWrapper.SinkParquetCallback(
+            handle, target, compression.ToNative(), compressionLevel, statistics, rowGroupSize, dataPageSize, compatLevel, maintainOrder, extras),
+            cancellationToken), extras);
     }
 
     /// <summary>
@@ -262,7 +302,7 @@ public partial class LazyFrame : IDisposable
     /// <para>The writer is flushed but not completed.</para>
     /// </summary>
     /// <param name="writer">Destination pipe writer.</param>
-    /// <inheritdoc cref="SinkParquetAsync(Stream, ParquetCompression, int, bool, int, int, int, bool, CancellationToken)"/>
+    /// <inheritdoc cref="SinkParquetAsync(Stream, ParquetCompression, int, bool, int, int, int, bool, IReadOnlyDictionary{string, string}, Apache.Arrow.Schema, ParquetEncryption, CancellationToken)"/>
     public Task SinkParquetAsync(
         PipeWriter writer,
         ParquetCompression compression = ParquetCompression.ZSTD,
@@ -272,12 +312,37 @@ public partial class LazyFrame : IDisposable
         int dataPageSize = 0,
         int compatLevel = -1,
         bool maintainOrder = true,
+        IReadOnlyDictionary<string, string>? metadata = null,
+        Apache.Arrow.Schema? arrowSchema = null,
+        ParquetEncryption? encryption = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(writer);
+        var extras = ParquetNativeOptions.Write(metadata, arrowSchema, encryption);
         var handle = CloneHandle();
-        return NativeStreamWriter.WriteAsync(writer, target => PolarsWrapper.SinkParquetCallback(
-            handle, target, compression.ToNative(), compressionLevel, statistics, rowGroupSize, dataPageSize, compatLevel, maintainOrder),
-            cancellationToken);
+        return DisposeWhenDone(NativeStreamWriter.WriteAsync(writer, target => PolarsWrapper.SinkParquetCallback(
+            handle, target, compression.ToNative(), compressionLevel, statistics, rowGroupSize, dataPageSize, compatLevel, maintainOrder, extras),
+            cancellationToken), extras);
     }
+
+    /// <summary>Releases the write options once the background write is over.</summary>
+    private static async Task DisposeWhenDone(Task write, IDisposable? options)
+    {
+        try { await write.ConfigureAwait(false); }
+        finally { options?.Dispose(); }
+    }
+
+    /// <summary>The signature of version 1.1 (kept for callers compiled against it, and for a positional token).</summary>
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    public Task SinkParquetAsync(Stream stream, ParquetCompression compression, int compressionLevel, bool statistics, int rowGroupSize,
+        int dataPageSize, int compatLevel, bool maintainOrder, CancellationToken cancellationToken)
+        => SinkParquetAsync(stream, compression, compressionLevel, statistics, rowGroupSize, dataPageSize, compatLevel, maintainOrder,
+            null, null, null, cancellationToken);
+
+    /// <summary>The signature of version 1.1 (kept for callers compiled against it, and for a positional token).</summary>
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    public Task SinkParquetAsync(PipeWriter writer, ParquetCompression compression, int compressionLevel, bool statistics, int rowGroupSize,
+        int dataPageSize, int compatLevel, bool maintainOrder, CancellationToken cancellationToken)
+        => SinkParquetAsync(writer, compression, compressionLevel, statistics, rowGroupSize, dataPageSize, compatLevel, maintainOrder,
+            null, null, null, cancellationToken);
 }

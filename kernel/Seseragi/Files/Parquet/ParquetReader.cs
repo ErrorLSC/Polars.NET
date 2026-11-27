@@ -1050,6 +1050,8 @@ public sealed class ParquetReader : IDisposable, IAsyncDisposable
                             ? Mapped(map.Range(mapStart + at[l].Start, (int)at[l].Length), meta)
                             : new PageReader(_file.Source, at[l].Start, at[l].Length, meta.Codec, _options.VerifyChecksums, _buffers);
                 if (index is not null) pages.UseIndex(index, at[l].Start, Needed(index, ranges!));
+                if (_file.Decryptor?.ForChunk(group.Columns[leaf.Leaf.LeafIndex], group.Ordinal ?? g, leaf.Leaf.LeafIndex, string.Join('.', leaf.Leaf.Path)) is { } crypto)
+                    pages.UseDecryption(crypto);
                 readers[l] = LeafReaders.Create(pages, leaf.Leaf, leaf.LeafType!, meta.NumValues);
                 readers[l].UncompressedBytes = meta.TotalUncompressedSize;
                 readers[l].LevelsAsBits = _options.LevelsAsBits;
@@ -1347,7 +1349,8 @@ public sealed class ParquetReader : IDisposable, IAsyncDisposable
             ColumnChunk chunk = group.Columns[leaf.LeafIndex];
             string name = string.Join('.', leaf.Path);
             if (chunk.FilePath is not null) throw new ParquetFormatException($"Column '{name}' of row group {g} is stored in another file ('{chunk.FilePath}').");
-            ColumnMetaData meta = chunk.MetaData!;
+            ColumnMetaData meta = chunk.MetaData ?? throw new ParquetFormatException(
+                $"Column '{name}' is encrypted with a key of its own: give it in ParquetDecryptionOptions.ColumnKeys (by its dot-separated path).");
             if (!PageCodecs.CanDecompress(meta.Codec)) throw new ParquetFormatException($"Column '{name}' is compressed with {PageCodecs.Name(meta.Codec)}, which is not supported.");
             ranges[l] = ChunkRange(meta, _file.DataEnd, name, _oldParquetMr);
         }

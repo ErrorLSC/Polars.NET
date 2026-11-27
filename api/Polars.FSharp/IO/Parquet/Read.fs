@@ -26,6 +26,10 @@ module ParquetRead =
         /// <param name="hivePartitionSchema">The schema of the hive partitions.</param>
         /// <param name="tryParseHiveDates">Attempt to parse hive values as Date/Datetime.</param>
         /// <param name="cloudOptions">Options for cloud storage (AWS S3, Azure Blob, GCS, etc.).</param>
+        /// <param name="ignoreExtraColumns">Leave out the columns of a file that the schema does not name, instead of raising.</param>
+        /// <param name="castOptions">The casts allowed when a file's types differ from the schema (default: none, a mismatch raises).</param>
+        /// <param name="hiddenFilePrefixes">Skip the files whose names begin with one of these prefixes (unstable in the engine).</param>
+        /// <param name="decryption">The keys of files written with Parquet modular encryption (experimental).</param>
         static member ScanParquet
             (
                 path: string,
@@ -44,7 +48,11 @@ module ParquetRead =
                 ?hivePartitioning: bool,
                 ?hivePartitionSchema: PolarsSchema,
                 ?tryParseHiveDates: bool,
-                ?cloudOptions: CloudOptions
+                ?cloudOptions: CloudOptions,
+                ?ignoreExtraColumns: bool,
+                ?castOptions: ScanCastOptions,
+                ?hiddenFilePrefixes: seq<string>,
+                ?decryption: ParquetDecryption
             ) =
             // Defaults
             let pParallel = defaultArg parallelStrategy ParallelStrategy.Auto
@@ -80,7 +88,7 @@ module ParquetRead =
             let cProv, cRet, cToMs, cInitMs, cMaxMs, cCache, cKeys, cVals = 
                 CloudOptions.ParseCloudOptions cloudOptions
 
-            // Call Wrapper
+            use extras = ParquetNativeOptions.scan ignoreExtraColumns castOptions hiddenFilePrefixes decryption
             let handle = PolarsWrapper.ScanParquet(
                 path,
                 pNRows,
@@ -105,7 +113,8 @@ module ParquetRead =
                 cMaxMs,
                 cCache,
                 cKeys,
-                cVals
+                cVals,
+                extras
             )
             
             new LazyFrame(handle)
@@ -144,7 +153,10 @@ module ParquetRead =
                 ?schema: PolarsSchema,       
                 ?hivePartitioning: bool,
                 ?hivePartitionSchema: PolarsSchema,   
-                ?tryParseHiveDates: bool
+                ?tryParseHiveDates: bool,
+                ?ignoreExtraColumns: bool,
+                ?castOptions: ScanCastOptions,
+                ?decryption: ParquetDecryption
             ) =
             LazyFrame.ScanParquet(
                 System.ReadOnlyMemory<byte>(Array.copy buffer),
@@ -162,7 +174,10 @@ module ParquetRead =
                 ?schema = schema,
                 ?hivePartitioning = hivePartitioning,
                 ?hivePartitionSchema = hivePartitionSchema,
-                ?tryParseHiveDates = tryParseHiveDates)
+                ?tryParseHiveDates = tryParseHiveDates,
+                ?ignoreExtraColumns = ignoreExtraColumns,
+                ?castOptions = castOptions,
+                ?decryption = decryption)
 
         /// <summary>
         /// [Memory] Lazily read parquet from a byte array (in-memory buffer).
@@ -200,7 +215,10 @@ module ParquetRead =
                 ?schema: PolarsSchema,       
                 ?hivePartitioning: bool,
                 ?hivePartitionSchema: PolarsSchema,   
-                ?tryParseHiveDates: bool
+                ?tryParseHiveDates: bool,
+                ?ignoreExtraColumns: bool,
+                ?castOptions: ScanCastOptions,
+                ?decryption: ParquetDecryption
             ) =
             let pParallel = defaultArg parallelStrategy ParallelStrategy.Auto
             let pLowMem = defaultArg lowMemory false
@@ -229,7 +247,7 @@ module ParquetRead =
                 |> Option.map (fun s -> s.Handle) 
                 |> Option.toObj
 
-            // 3. Call C# Wrapper (Memory Overload)
+            use extras = ParquetNativeOptions.scan ignoreExtraColumns castOptions None decryption
             let handle = PolarsWrapper.ScanParquet(
                 NativeBytes.Share buffer,
                 pNRows,
@@ -246,7 +264,8 @@ module ParquetRead =
                 hSchema,
                 pHivePartitioning,
                 hHiveSchema,
-                pTryHive
+                pTryHive,
+                extras
             )
 
             new LazyFrame(handle)
@@ -275,7 +294,11 @@ module ParquetRead =
             ?hivePartitioning: bool,
             ?hivePartitionSchema: PolarsSchema,
             ?tryParseHiveDates: bool,
-            ?cloudOptions: CloudOptions
+            ?cloudOptions: CloudOptions,
+            ?ignoreExtraColumns: bool,
+            ?castOptions: ScanCastOptions,
+            ?hiddenFilePrefixes: seq<string>,
+            ?decryption: ParquetDecryption
         ) : DataFrame =
             
             let mutable (lf: LazyFrame) = LazyFrame.ScanParquet(
@@ -295,7 +318,11 @@ module ParquetRead =
                 ?hivePartitioning = hivePartitioning,
                 ?hivePartitionSchema = hivePartitionSchema,
                 ?tryParseHiveDates = tryParseHiveDates,
-                ?cloudOptions = cloudOptions
+                ?cloudOptions = cloudOptions,
+                ?ignoreExtraColumns = ignoreExtraColumns,
+                ?castOptions = castOptions,
+                ?hiddenFilePrefixes = hiddenFilePrefixes,
+                ?decryption = decryption
             )
 
             match columns with
@@ -339,7 +366,10 @@ module ParquetRead =
             ?schema: PolarsSchema,
             ?hivePartitioning:bool,
             ?hivePartitionSchema: PolarsSchema,
-            ?tryParseHiveDates: bool
+            ?tryParseHiveDates: bool,
+            ?ignoreExtraColumns: bool,
+            ?castOptions: ScanCastOptions,
+            ?decryption: ParquetDecryption
         ) : DataFrame =
             
             let mutable (lf: LazyFrame) = LazyFrame.ScanParquet(
@@ -357,7 +387,10 @@ module ParquetRead =
                 ?schema = schema,
                 ?hivePartitioning = hivePartitioning,
                 ?hivePartitionSchema = hivePartitionSchema,
-                ?tryParseHiveDates = tryParseHiveDates
+                ?tryParseHiveDates = tryParseHiveDates,
+                ?ignoreExtraColumns = ignoreExtraColumns,
+                ?castOptions = castOptions,
+                ?decryption = decryption
             )
 
             match columns with
@@ -401,7 +434,10 @@ module ParquetRead =
             ?schema: PolarsSchema,
             ?hivePartitioning:bool,
             ?hivePartitionSchema: PolarsSchema,
-            ?tryParseHiveDates: bool
+            ?tryParseHiveDates: bool,
+            ?ignoreExtraColumns: bool,
+            ?castOptions: ScanCastOptions,
+            ?decryption: ParquetDecryption
         ) : DataFrame =
             
             use ms = new System.IO.MemoryStream()
@@ -424,7 +460,10 @@ module ParquetRead =
                 ?schema = schema,
                 ?hivePartitioning = hivePartitioning,
                 ?hivePartitionSchema = hivePartitionSchema,
-                ?tryParseHiveDates = tryParseHiveDates
+                ?tryParseHiveDates = tryParseHiveDates,
+                ?ignoreExtraColumns = ignoreExtraColumns,
+                ?castOptions = castOptions,
+                ?decryption = decryption
             ) 
 
         /// <summary> Asynchronously read a Parquet file. </summary>
@@ -446,7 +485,11 @@ module ParquetRead =
                 ?hivePartitioning:bool,
                 ?hivePartitionSchema: PolarsSchema,
                 ?tryParseHiveDates: bool,
-                ?cloudOptions: CloudOptions) = 
+                ?cloudOptions: CloudOptions,
+                ?ignoreExtraColumns: bool,
+                ?castOptions: ScanCastOptions,
+                ?hiddenFilePrefixes: seq<string>,
+                ?decryption: ParquetDecryption) = 
             task {
                 return DataFrame.ReadParquet(
                     path,
@@ -466,6 +509,10 @@ module ParquetRead =
                     ?hivePartitioning = hivePartitioning,
                     ?hivePartitionSchema = hivePartitionSchema,
                     ?tryParseHiveDates = tryParseHiveDates,
-                    ?cloudOptions = cloudOptions
+                    ?cloudOptions = cloudOptions,
+                    ?ignoreExtraColumns = ignoreExtraColumns,
+                    ?castOptions = castOptions,
+                    ?hiddenFilePrefixes = hiddenFilePrefixes,
+                    ?decryption = decryption
                 )
             }

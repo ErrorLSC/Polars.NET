@@ -251,11 +251,19 @@ public class ParquetFooterTests
 
     [Theory]
     [MemberData(nameof(Files))]
-    public void EncryptedFiles_AreRefusedByName(string name)
+    public void EncryptedFiles_WithoutKeys_AreRefusedByName_OrOpenTheirPlaintextFooter(string name)
     {
         if (!ParquetFixtures.IsEncrypted(name)) return;
-        var e = Assert.Throws<ParquetFormatException>(() => ParquetFile.Open(ParquetFixtures.FullPath(name)));
-        Assert.Contains("encrypted", e.Message);
+        byte[] bytes = File.ReadAllBytes(ParquetFixtures.FullPath(name));
+        if (bytes.AsSpan()[^4..].SequenceEqual("PARE"u8))
+        {
+            var e = Assert.Throws<ParquetFormatException>(() => ParquetFile.Open(ParquetFixtures.FullPath(name)));
+            Assert.Contains("encrypted", e.Message);
+            Assert.Contains("ParquetDecryptionOptions", e.Message);
+            return;
+        }
+        using var file = ParquetFile.Open(ParquetFixtures.FullPath(name));
+        Assert.True(file.Metadata.IsEncrypted);
     }
 
     [Fact]

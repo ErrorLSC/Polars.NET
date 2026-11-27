@@ -46,7 +46,7 @@ public sealed record ParquetColumnStatistics(byte[]? Min, byte[]? Max, long? Nul
 
 /// <summary>One column chunk of a row group.</summary>
 /// <param name="Path">The path of the leaf in the schema (top-level name first).</param>
-/// <param name="ValueCount">The number of values, nulls included (for repeated leaves: elements).</param>
+/// <param name="ValueCount">The number of values, nulls included (for repeated leaves: elements); -1 when the chunk's metadata is encrypted with a key that was not given.</param>
 /// <param name="Statistics">The chunk statistics, or null when none were written.</param>
 public sealed record ParquetColumnChunk(IReadOnlyList<string> Path, long ValueCount, ParquetColumnStatistics? Statistics);
 
@@ -93,6 +93,12 @@ public sealed class ParquetMetadata
     /// <summary>The length of the footer this was read from (where the file's data ends), when read from a file.</summary>
     internal int? FooterSize { get; init; }
 
+    /// <summary>The encryption of the file this was read from (Parquet modular encryption); null when it is not encrypted.</summary>
+    internal EncryptionAlgorithm? Encryption { get; init; }
+
+    /// <summary>Whether the file this was read from is encrypted (Parquet modular encryption).</summary>
+    public bool IsEncrypted => Encryption is not null;
+
     /// <summary>How much of a file's end to read first: enough for almost every footer.</summary>
     public const int TailGuess = 64 * 1024;
 
@@ -123,18 +129,21 @@ public sealed class ParquetMetadata
         return Parse(file.Slice((int)offset, length));
     }
 
-    /// <summary>The footer length from a file's last 8 bytes.</summary>
-    internal static int FooterLength(ReadOnlySpan<byte> tail, string name)
+    /// <summary>The footer length from a file's last 8 bytes (with <paramref name="allowEncrypted"/>, also of an encrypted footer: <c>PARE</c>).</summary>
+    internal static int FooterLength(ReadOnlySpan<byte> tail, string name, bool allowEncrypted = false)
     {
-        if (tail[4..].SequenceEqual("PARE"u8)) throw Encrypted(name);
-        if (!tail[4..].SequenceEqual("PAR1"u8)) throw new ParquetFormatException($"{name} is not a Parquet file (no PAR1 at the end).");
+        if (tail[4..].SequenceEqual("PARE"u8))
+        {
+            if (!allowEncrypted) throw Encrypted(name);
+        }
+        else if (!tail[4..].SequenceEqual("PAR1"u8)) throw new ParquetFormatException($"{name} is not a Parquet file (no PAR1 at the end).");
         int length = BinaryPrimitives.ReadInt32LittleEndian(tail);
         if (length <= 0) throw new ParquetFormatException($"{name} has an invalid footer length {length}.");
         return length;
     }
 
     internal static ParquetFormatException Encrypted(string name) =>
-        new($"{name} is encrypted (Parquet modular encryption), which is not supported.");
+        new($"{name} is encrypted (Parquet modular encryption): open it with ParquetFile.Open and its keys (ParquetDecryptionOptions).");
 
     /// <summary>Parses the Thrift-encoded <c>FileMetaData</c>.</summary>
     /// <exception cref="ParquetFormatException">The bytes are not a valid footer, or the file is encrypted.</exception>
@@ -155,7 +164,7 @@ public sealed class ParquetMetadata
 
     /// <summary>The public view of a footer, after checking that its schema tree and row groups agree.</summary>
     /// <exception cref="ParquetFormatException">The schema tree or the column chunks are inconsistent.</exception>
-    internal static ParquetMetadata FromThrift(FileMetaData meta, int? footerLength = null)
+    internal static ParquetMetadata FromThrift(FileMetaData meta, int? footerLength = null, EncryptionAlgorithm? encryption = null)
     {
         int leaves = meta.Shape?.LeafCount ?? SchemaTree.CountLeaves(meta.Schema);
         for (int g = 0; g < meta.RowGroups.Length; g++)
@@ -165,7 +174,9 @@ public sealed class ParquetMetadata
                 throw new ParquetFormatException($"Row group {g} has {group.Columns.Length} column chunks for {leaves} schema leaves.");
             for (int c = 0; c < group.Columns.Length; c++)
             {
-                if (group.Columns[c].MetaData is null) throw new ParquetFormatException($"Column chunk {c} of row group {g} has no metadata.");
+                // Encrypted with a key that was not given, a chunk's metadata stays encrypted.
+                if (group.Columns[c] is { MetaData: null, CryptoMetaData: null })
+                    throw new ParquetFormatException($"Column chunk {c} of row group {g} has no metadata.");
             }
         }
         // The views of the row groups and the key-value pairs are made on first use (readers use the full footer).
@@ -176,6 +187,7 @@ public sealed class ParquetMetadata
             CreatedBy = meta.CreatedBy,
             Thrift = meta,
             FooterSize = footerLength,
+            Encryption = encryption,
         };
     }
 
@@ -189,7 +201,12 @@ public sealed class ParquetMetadata
             var chunks = new ParquetColumnChunk[group.Columns.Length];
             for (int c = 0; c < chunks.Length; c++)
             {
-                ColumnMetaData column = group.Columns[c].MetaData!;
+                ColumnChunk chunk = group.Columns[c];
+                if (chunk.MetaData is not { } column)
+                {
+                    chunks[c] = new ParquetColumnChunk(chunk.CryptoMetaData?.Path ?? [], -1, null); // encrypted with a key not given
+                    continue;
+                }
                 // Only min_value / max_value: the legacy min / max used a signed byte order for binary.
                 Statistics? s = column.Statistics;
                 chunks[c] = new ParquetColumnChunk(column.PathInSchema, column.NumValues, s is null ? null : new(s.MinValue, s.MaxValue, s.NullCount));

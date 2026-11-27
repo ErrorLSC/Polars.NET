@@ -5,6 +5,7 @@ use crate::pl_io::ffi_buffer::FfiBuffer;
 use crate::pl_io::callback_writer::{FfiWriteCallback, build_writer_sink_destination, with_callback_writer};
 use crate::pl_io::io_utils::{build_memory_sink_destination, build_partitioned_destination, build_unified_sink_args};
 use crate::pl_io::parquet::parquet_utils::build_parquet_write_options;
+use crate::pl_io::parquet::options::{ParquetWriteExtrasContext, write_extras};
 use std::ffi::c_void;
 use crate::types::{LazyFrameContext, SelectorContext};
 use crate::utils::ptr_to_str;
@@ -37,7 +38,9 @@ pub extern "C" fn pl_lazyframe_sink_parquet(
     cloud_cache_ttl: u64,
     cloud_keys: *const *const c_char,
     cloud_values: *const *const c_char,
-    cloud_len: usize
+    cloud_len: usize,
+    // --- Extras (metadata, Arrow schema, encryption); null = none ---
+    extras: *const ParquetWriteExtrasContext,
 ) {
     ffi_try_void!({
         let ctx = unsafe { Box::from_raw(lf_ptr) };
@@ -51,7 +54,8 @@ pub extern "C" fn pl_lazyframe_sink_parquet(
             statistics,
             row_group_size,
             data_page_size,
-            compat_level
+            compat_level,
+            write_extras(extras),
         )?;
         
         let unified_args = unsafe {
@@ -116,7 +120,9 @@ pub extern "C" fn pl_lazyframe_sink_parquet_partitioned(
     cloud_cache_ttl: u64,
     cloud_keys: *const *const c_char,
     cloud_values: *const *const c_char,
-    cloud_len: usize
+    cloud_len: usize,
+    // --- Extras (metadata, Arrow schema, encryption); null = none ---
+    extras: *const ParquetWriteExtrasContext,
 ) {
     ffi_try_void!({
         let mut lf_ctx = unsafe { Box::from_raw(lf_ptr) };
@@ -142,7 +148,8 @@ pub extern "C" fn pl_lazyframe_sink_parquet_partitioned(
             statistics,
             row_group_size,
             data_page_size,
-            compat_level
+            compat_level,
+            write_extras(extras),
         )?;
         let file_format = FileWriteFormat::Parquet(write_options_arc);
 
@@ -182,6 +189,7 @@ fn sink_parquet_to(
     data_page_size: usize,
     compat_level: i32,
     maintain_order: bool,
+    extras: *const ParquetWriteExtrasContext,
 ) -> PolarsResult<()> {
     let write_options_arc = build_parquet_write_options(
         compression,
@@ -189,7 +197,8 @@ fn sink_parquet_to(
         statistics,
         row_group_size,
         data_page_size,
-        compat_level
+        compat_level,
+        write_extras(extras),
     )?;
     let file_format = FileWriteFormat::Parquet(write_options_arc);
 
@@ -222,6 +231,8 @@ pub extern "C" fn pl_lazyframe_sink_parquet_memory(
     
     // --- Unified Options ---
     maintain_order: bool,
+    // --- Extras (metadata, Arrow schema, encryption); null = none ---
+    extras: *const ParquetWriteExtrasContext,
 ) {
     ffi_try_void!({
         if lf_ptr.is_null() || out_buffer.is_null() {
@@ -233,7 +244,7 @@ pub extern "C" fn pl_lazyframe_sink_parquet_memory(
         let (mem_writer, destination) = build_memory_sink_destination();
 
         sink_parquet_to(lf_ctx, destination, compression, compression_level, statistics,
-            row_group_size, data_page_size, compat_level, maintain_order)?;
+            row_group_size, data_page_size, compat_level, maintain_order, extras)?;
 
         let vec = mem_writer.into_inner();
         let mut vec = std::mem::ManuallyDrop::new(vec);
@@ -265,6 +276,8 @@ pub extern "C" fn pl_lazyframe_sink_parquet_callback(
 
     // --- Unified Options ---
     maintain_order: bool,
+    // --- Extras (metadata, Arrow schema, encryption); null = none ---
+    extras: *const ParquetWriteExtrasContext,
 ) {
     ffi_try_void!({
         if lf_ptr.is_null() {
@@ -275,7 +288,7 @@ pub extern "C" fn pl_lazyframe_sink_parquet_callback(
 
         with_callback_writer(callback, user_data, buffer_size, |w| {
             sink_parquet_to(lf_ctx, build_writer_sink_destination(w), compression, compression_level,
-                statistics, row_group_size, data_page_size, compat_level, maintain_order)
+                statistics, row_group_size, data_page_size, compat_level, maintain_order, extras)
         })
     })
 }

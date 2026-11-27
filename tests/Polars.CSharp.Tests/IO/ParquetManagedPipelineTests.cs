@@ -48,7 +48,9 @@ public class ParquetManagedPipelineTests
     private static readonly HashSet<string> TooLarge = ["apache/data/large_string_map.brotli.parquet"];
 
     public static TheoryData<string> Files => [.. Directory.EnumerateFiles(Root, "*.parquet", SearchOption.AllDirectories)
-        .Select(p => Path.GetRelativePath(Root, p).Replace('\\', '/')).Where(n => !ManagedRefuses.Contains(n) && !PolarsMisreads.Contains(n) && !TooLarge.Contains(n)).Order(StringComparer.Ordinal)];
+        .Select(p => Path.GetRelativePath(Root, p).Replace('\\', '/')).Where(n => !ManagedRefuses.Contains(n) && !PolarsMisreads.Contains(n) && !TooLarge.Contains(n))
+        .Where(n => !n.StartsWith("encrypted/", StringComparison.Ordinal) || n == "encrypted/plain.parquet") // the others need keys: KeyedFiles
+        .Order(StringComparer.Ordinal)];
 
     private sealed class BatchStream(Apache.Arrow.Schema schema, IEnumerable<RecordBatch> batches) : IArrowArrayStream
     {
@@ -72,12 +74,61 @@ public class ParquetManagedPipelineTests
         _ => true,
     };
 
+    private static Dictionary<string, ReadOnlyMemory<byte>> Keys(params (string Column, string Key)[] keys) =>
+        keys.ToDictionary(k => k.Column, k => (ReadOnlyMemory<byte>)System.Text.Encoding.ASCII.GetBytes(k.Key));
+
+    /// <summary>Encrypted files both readers read (AES_GCM_V1, 16- or 32-byte keys), with their keys.</summary>
+    private static readonly Dictionary<string, ParquetDecryptionOptions> Keyed = BuildKeyed();
+
+    private static Dictionary<string, ParquetDecryptionOptions> BuildKeyed()
+    {
+        byte[] k16 = "0123456789012345"u8.ToArray(), k32 = "01234567890123456789012345678901"u8.ToArray();
+        var ours = Keys(("i64", "1234567890123450"), ("s.a", "1234567890123451"));
+        var apache = Keys(("double_field", "1234567890123450"), ("float_field", "1234567890123451"));
+        var apache256 = Keys(("double_field", "12345678901234567890123456789012"), ("float_field", "12345678901234567890123456789013"),
+            ("boolean_field", "12345678901234567890123456789014"), ("int32_field", "12345678901234567890123456789015"),
+            ("ba_field", "12345678901234567890123456789016"), ("flba_field", "12345678901234567890123456789017"),
+            ("int64_field.list.element", "12345678901234567890123456789018"), ("int96_field", "12345678901234567890123456789019"));
+        byte[] tester = "tester"u8.ToArray();
+        return new()
+        {
+            ["encrypted/pa_gcm128.parquet"] = new(k16),
+            ["encrypted/pa_gcm128_v2.parquet"] = new(k16),
+            ["encrypted/pa_gcm128_plaintext_footer.parquet"] = new(k16),
+            ["encrypted/pa_gcm128_aad_supplied.parquet"] = new(k16) { AadPrefix = "table-7"u8.ToArray() },
+            ["encrypted/pa_gcm256_aad_stored.parquet"] = new(k32),
+            ["encrypted/pl_columns.parquet"] = new(k16) { ColumnKeys = ours },
+            ["encrypted/pl_columns_plaintext_footer.parquet"] = new(k16) { ColumnKeys = ours },
+            ["apache/data/uniform_encryption.parquet.encrypted"] = new(k16),
+            ["apache/data/encrypt_columns_and_footer.parquet.encrypted"] = new(k16) { ColumnKeys = apache },
+            ["apache/data/encrypt_columns_plaintext_footer.parquet.encrypted"] = new(k16) { ColumnKeys = apache },
+            ["apache/data/encrypt_columns_and_footer_aad.parquet.encrypted"] = new(k16) { ColumnKeys = apache, AadPrefix = tester },
+            ["apache/data/encrypt_columns_and_footer_disable_aad_storage.parquet.encrypted"] = new(k16) { ColumnKeys = apache, AadPrefix = tester },
+            ["apache/data/encrypt_columns_and_footer_bloom_filter.parquet.encrypted"] = new(k16) { ColumnKeys = apache },
+            ["apache/data/aes256/uniform_encryption.parquet.encrypted"] = new(k32),
+            ["apache/data/aes256/encrypt_columns_and_footer.parquet.encrypted"] = new(k32) { ColumnKeys = apache256 },
+            ["apache/data/aes256/encrypt_columns_plaintext_footer.parquet.encrypted"] = new(k32) { ColumnKeys = apache256 },
+            ["apache/data/aes256/encrypt_columns_and_footer_disable_aad_storage.parquet.encrypted"] = new(k32) { ColumnKeys = apache256, AadPrefix = tester },
+        };
+    }
+
+    public static TheoryData<string> KeyedFiles => [.. Keyed.Keys.Order(StringComparer.Ordinal)];
+
     [Theory]
     [MemberData(nameof(Files))]
-    public void ManagedRead_EqualsPolarsRead(string name)
+    public void ManagedRead_EqualsPolarsRead(string name) => AssertSameRead(name, null);
+
+    /// <summary>The managed reader and the engine decrypt alike (the managed one with Seseragi's options, the engine with Polars.NET's).</summary>
+    [Theory]
+    [MemberData(nameof(KeyedFiles))]
+    public void ManagedRead_EqualsPolarsRead_OfEncryptedFiles(string name) => AssertSameRead(name, Keyed[name]);
+
+    private static void AssertSameRead(string name, ParquetDecryptionOptions keys)
     {
         string path = Path.Combine(Root, name);
-        using var file = ParquetFile.Open(path);
+        ParquetDecryption engineKeys = keys is null ? null
+            : new ParquetDecryption(keys.FooterKey) { ColumnKeys = keys.ColumnKeys, AadPrefix = keys.AadPrefix };
+        using var file = ParquetFile.Open(path, keys);
         string[] columns = [.. file.Schema.FieldsList.Where(Importable).Select(f => f.Name)];
         if (columns.Length == 0) return;
         // Small batches through the owning stream: each batch is disposed as soon as Polars has imported it, so the
@@ -86,11 +137,11 @@ public class ParquetManagedPipelineTests
         using var managed = DataFrame.FromArrowStream(reader.ReadArrowStream());
         if (PolarsRefuses.Contains(name))
         {
-            Assert.ThrowsAny<Exception>(() => DataFrame.ReadParquet(path, columns: columns).Dispose());
+            Assert.ThrowsAny<Exception>(() => DataFrame.ReadParquet(path, columns: columns, decryption: engineKeys).Dispose());
             Assert.Equal(file.Metadata.RowCount, managed.Height);
             return;
         }
-        using var native = DataFrame.ReadParquet(path, columns: columns);
+        using var native = DataFrame.ReadParquet(path, columns: columns, decryption: engineKeys);
         if (name == "apache/data/repeated_no_annotation.parquet")
         {
             Assert.Equal(0, native.Height); // Polars reads no rows when only the flat column beside a repeated group is selected

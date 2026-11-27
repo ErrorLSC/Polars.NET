@@ -16,7 +16,7 @@ public partial class LazyFrame : IDisposable
     /// <param name="cloudOptions">Options for cloud storage authentication (AWS S3, Azure, GCP, etc).</param>
     /// <param name="version">The version of the table to read (e.g., 0, 1). Mutually exclusive with <paramref name="datetime"/>.</param>
     /// <param name="datetime">The timestamp to read (ISO-8601 string, e.g., "2026-02-09T12:00:00Z"). Mutually exclusive with <paramref name="version"/>.</param>
-    /// <inheritdoc cref="ScanParquet(string, ulong?, ParallelStrategy, bool, bool, bool, bool, bool, bool, string?, uint, string?, IntoSchema?, bool, IntoSchema?, bool, CloudOptions?)"/>
+    /// <inheritdoc cref="ScanParquet(string, ulong?, ParallelStrategy, bool, bool, bool, bool, bool, bool, string?, uint, string?, IntoSchema?, bool, IntoSchema?, bool, CloudOptions?, bool, ScanCastOptions?, string[], ParquetDecryption?)"/>
     /// <param name="schema">Return these columns of the table, cast to these types; a column the table does not have is an error.</param>
     /// <param name="glob">Ignored since 1.2.0 (the managed Delta kernel takes the data files from the log); removed in 2.0.</param>
     /// <param name="hivePartitioning">Ignored since 1.2.0 (the managed Delta kernel takes partition values from the log, not from paths); removed in 2.0.</param>
