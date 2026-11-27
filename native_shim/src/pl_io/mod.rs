@@ -7,3 +7,4 @@ pub mod storage;
 pub mod host_credentials;
 pub mod callback_writer;
 pub mod managed_buffer;
+pub mod plugin;

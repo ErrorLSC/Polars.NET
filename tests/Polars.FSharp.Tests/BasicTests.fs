@@ -144,8 +144,9 @@ type ``Basic Functionality Tests`` () =
 
         let planOptimized = lf2.Explain true
         printfn "\n=== Query Plan Optimized===\n%s\n==================" planOptimized
-        // CSV is read by the managed reader through an anonymous scan (the engine filters its batches).
-        Assert.Contains("Anonymous SCAN", planOptimized)
+        // CSV is read by the managed reader through the seseragi I/O plugin (the filter pushed to its reader).
+        Assert.Contains("SCAN [csv[", planOptimized)
+        Assert.Contains("skips rows by", planOptimized)
     [<Fact>]
     member _.``Arrow Integration: Import C# Arrow Data to Polars`` () =
 

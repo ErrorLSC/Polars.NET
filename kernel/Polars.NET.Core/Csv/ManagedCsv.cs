@@ -9,6 +9,7 @@ using Kaminari.Seseragi.Files.IO;
 using Polars.NET.Core.Arrow;
 using Polars.NET.Core.Delta;
 using Polars.NET.Core.Enums;
+using Polars.NET.Core.IO.Plugins;
 using Polars.NET.Core.Wrappers;
 using static Polars.NET.Core.IO.ManagedFrames;
 
@@ -414,30 +415,48 @@ public static class ManagedCsv
     public static LazyFrameHandle ScanCsv(string path, CsvScanArgs args, CloudArgs? cloud)
     {
         CsvSource source = OpenDataset(path, args, cloud);
+        CsvDataset dataset = source.Dataset!;
+        Scan scan;
         try
         {
-            CsvDataset dataset = source.Dataset!;
             Schema read;
             using (CsvDatasetReader probe = dataset.OpenReader(new CsvReadOptions { RowIndexColumn = args.RowIndexName })) read = probe.Schema;
-            var scan = new Scan(read, args.RowIndexName, IndexOffset(args.RowIndexOffset), RowLimit(args.NRows));
-            int threads = Threads(args);
-            // The scan owns the source (the dataset, its store, the types given) once made.
-            LazyFrameHandle lf = ArrowStreamInterop.ScanStream(Batches, scan.Schema, strict: true, source);
-            return source.Given!.CastBack(lf);
-
-            IEnumerable<RecordBatch> Batches(StreamScanRequest request)
-            {
-                var (columns, indexed, limit) = scan.Ask(request);
-                using CsvDatasetReader reader = dataset.OpenReader(RunOptions(new CsvReadOptions { MaxDegreeOfParallelism = threads, IgnoreErrors = args.IgnoreErrors }, args, columns, indexed, limit));
-                foreach (RecordBatch batch in reader.ReadBatches()) yield return scan.Deliver(batch, indexed);
-            }
+            scan = new Scan(read, args.RowIndexName, IndexOffset(args.RowIndexOffset), limit: null);
         }
         catch
         {
             source.Dispose();
             throw;
         }
+        int threads = Threads(args);
+        GivenTypes given = source.Given!;
+        // The scan owns the source (the dataset, its store, the types given) from here on.
+        LazyFrameHandle lf = ManagedScans.Open($"csv[{ManagedScans.Shown(path)}]", Fingerprint(path, args, cloud, scan.Schema), scan,
+            args.RowIndexName, Batches, source);
+        return given.CastBack(ManagedScans.Head(lf, RowLimit(args.NRows)));
+
+        IEnumerable<RecordBatch> Batches(ScanRun run)
+        {
+            var options = RunOptions(new CsvReadOptions { MaxDegreeOfParallelism = threads, IgnoreErrors = args.IgnoreErrors }, args, run.Columns, run.Indexed, run.Limit)
+                with { Filter = run.Filter, FilterRows = run.Filter is not null };
+            using CsvDatasetReader reader = dataset.OpenReader(options);
+            foreach (RecordBatch batch in reader.ReadBatches()) yield return batch;
+        }
     }
+
+    /// <summary>
+    /// A path scan's fingerprint: what decides the data it reads (the paths, the store, how the files are read, the
+    /// columns as typed); not what only shapes the work (threads, rechunking) or is applied above the scan (the rows
+    /// limit, the types cast back).
+    /// </summary>
+    internal static ulong Fingerprint(string path, CsvScanArgs a, CloudArgs? cloud, Schema scan) => new FingerprintBuilder()
+        .Add("csv").Add(path).Add(cloud).Add(scan)
+        .Add(a.HasHeader).Add(a.Separator).Add(a.QuoteChar).Add(a.EolChar).Add(a.IgnoreErrors).Add(a.TryParseDates).Add(a.Glob)
+        .Add(a.RaiseIfEmpty).Add(a.SkipRows).Add(a.SkipRowsAfterHeader).Add(a.SkipLines).Add(a.InferSchemaLength).Add(a.InferSchemaFiles)
+        .Add(a.RowIndexName).Add(a.RowIndexOffset).Add(a.IncludeFilePaths).Add(a.Encoding).Add(a.LossyEncoding).Add(a.NullValues)
+        .Add(a.MissingIsNull).Add(a.CommentPrefix).Add(a.DecimalComma).Add(a.TruncateRaggedLines).Add(a.TrueValues).Add(a.FalseValues)
+        .Add(a.ThousandsSeparator).Add(a.AllowMissingColumns).Add(a.IgnoreExtraColumns).Add(a.HivePartitioning)
+        .Value;
 
     /// <summary>
     /// A lazy scan of CSV in memory, read in place each time the plan runs: <paramref name="owner"/> (what keeps the
@@ -447,30 +466,45 @@ public static class ManagedCsv
     {
         ArgumentNullException.ThrowIfNull(owner);
         ArgumentNullException.ThrowIfNull(args);
+        GivenTypes given;
         try
         {
-            using var given = new GivenTypes(args.Schema, args.DtypeOverride, args.IgnoreErrors);
-            // The columns, decided once: every run reads with them (nothing inferred again).
-            CsvReadOptions format = Format(args, given.Overrides) with { Schema = given.Schema };
-            Schema full;
-            using (CsvReader probe = CsvReader.Open(bytes, format)) full = probe.Schema;
-            format = format with { Schema = full, SchemaOverrides = null, Columns = null };
-            Schema read;
-            using (CsvReader probe = CsvReader.Open(bytes, format with { RowIndexColumn = args.RowIndexName })) read = probe.Schema;
-            var scan = new Scan(read, args.RowIndexName, IndexOffset(args.RowIndexOffset), RowLimit(args.NRows));
-            return given.CastBack(ArrowStreamInterop.ScanStream(Batches, scan.Schema, strict: true, owner));
-
-            IEnumerable<RecordBatch> Batches(StreamScanRequest request)
-            {
-                var (columns, indexed, limit) = scan.Ask(request);
-                using CsvReader reader = CsvReader.Open(bytes, RunOptions(format, args, columns, indexed, limit));
-                foreach (RecordBatch batch in reader.ReadBatches()) yield return scan.Deliver(batch, indexed);
-            }
+            given = new GivenTypes(args.Schema, args.DtypeOverride, args.IgnoreErrors);
         }
         catch
         {
             owner.Dispose();
             throw;
+        }
+        using (given)
+        {
+            CsvReadOptions format;
+            Scan scan;
+            try
+            {
+                // The columns, decided once: every run reads with them (nothing inferred again).
+                format = Format(args, given.Overrides) with { Schema = given.Schema };
+                Schema full;
+                using (CsvReader probe = CsvReader.Open(bytes, format)) full = probe.Schema;
+                format = format with { Schema = full, SchemaOverrides = null, Columns = null };
+                Schema read;
+                using (CsvReader probe = CsvReader.Open(bytes, format with { RowIndexColumn = args.RowIndexName })) read = probe.Schema;
+                scan = new Scan(read, args.RowIndexName, IndexOffset(args.RowIndexOffset), limit: null);
+            }
+            catch
+            {
+                owner.Dispose();
+                throw;
+            }
+            // Memory is read by this scan only: no other scan reads the same data.
+            LazyFrameHandle lf = ManagedScans.Open("csv[memory]", ManagedScans.Identity(), scan, args.RowIndexName, Batches, owner);
+            return given.CastBack(ManagedScans.Head(lf, RowLimit(args.NRows)));
+
+            IEnumerable<RecordBatch> Batches(ScanRun run)
+            {
+                using CsvReader reader = CsvReader.Open(bytes, RunOptions(format, args, run.Columns, run.Indexed, run.Limit) with { Filter = run.Filter, FilterRows = run.Filter is not null });
+                foreach (RecordBatch batch in reader.ReadBatches()) yield return batch;
+            }
         }
     }
 

@@ -1,0 +1,256 @@
+using System.IO.Hashing;
+using System.Runtime.InteropServices;
+using Apache.Arrow;
+using Kaminari.Samidare.IR;
+using Polars.NET.Core.Wrappers;
+using static Polars.NET.Core.IO.ManagedFrames;
+
+namespace Polars.NET.Core.IO.Plugins;
+
+/// <summary>What one read of a managed scan asks of its reader.</summary>
+/// <param name="Columns">The reader's columns to read (the row index apart), in order; null for all.</param>
+/// <param name="Indexed">Whether the reader numbers the rows (the row index asked).</param>
+/// <param name="Limit">The rows read at most.</param>
+/// <param name="Filter">Rows the reader may skip: those this predicate does not hold for (null: none). The engine
+/// applies its filters itself after the read; the reader only drops rows early.</param>
+internal readonly record struct ScanRun(string[]? Columns, bool Indexed, long? Limit, ScalarExpr? Filter);
+
+/// <summary>
+/// The managed readers' lazy scans (CSV, JSON, …) as engine resolvers: one source (the whole input: the managed reader
+/// reads its files, in parallel, pruning by partitions, itself), each resolution baking in the columns, the row limit
+/// and the filter the query pushed (as the Samidare IR each pushed filter implies).
+/// </summary>
+internal static class ManagedScans
+{
+    private static long _identities;
+
+    /// <summary>
+    /// A LazyFrame over a managed scan. <paramref name="owner"/> (the dataset, its store, a copy or pin of the memory read)
+    /// is released once the engine releases the scan and every resolution of it, or now when the frame cannot be made.
+    /// </summary>
+    /// <param name="name">Shown by explain, e.g. <c>csv[data/*.csv]</c> (no secrets).</param>
+    /// <param name="fingerprint">Equal only for scans of the same data (<see cref="Fingerprint"/>, <see cref="Identity"/>).</param>
+    /// <param name="scan">The scan's columns as the engine takes them, and how batches are delivered.</param>
+    /// <param name="read">The reader's raw batches for a run.</param>
+    /// <param name="rowIndex">The row index's name (the scan's first column), or null.</param>
+    /// <param name="owner">What the reads read from.</param>
+    public static LazyFrameHandle Open(string name, ulong fingerprint, Scan scan, string? rowIndex,
+        Func<ScanRun, IEnumerable<RecordBatch>> read, IDisposable owner)
+    {
+        var shared = new SharedOwner(owner);
+        ManagedScanResolver resolver;
+        try
+        {
+            resolver = new ManagedScanResolver(name, fingerprint, scan, rowIndex, read, shared);
+        }
+        catch
+        {
+            shared.Release();
+            throw;
+        }
+        return IoPluginBridge.Scan(resolver);
+    }
+
+    /// <summary>The scan limited to its first rows (the engine pushes the slice down as the read's limit).</summary>
+    public static LazyFrameHandle Head(LazyFrameHandle lf, long? rows) =>
+        rows is { } n ? PolarsWrapper.LazySlice(lf, 0, (uint)Math.Min(n, uint.MaxValue)) : lf;
+
+    /// <summary>A fingerprint unique to this scan (sources read once, in memory, streams).</summary>
+    public static ulong Identity() => new FingerprintBuilder().Add("identity").Add(Interlocked.Increment(ref _identities)).Value;
+
+    /// <summary>A path read's name: the path without what may hold secrets (a URL's query and credentials).</summary>
+    public static string Shown(string path)
+    {
+        if (!Uri.TryCreate(path, UriKind.Absolute, out Uri? uri) || uri.IsFile) return path;
+        return $"{uri.Scheme}://{uri.Host}{(uri.IsDefaultPort ? "" : $":{uri.Port}")}{uri.AbsolutePath}";
+    }
+
+    /// <summary>
+    /// The predicate a reader may skip rows by: the pushed filters' implied predicates over the columns it reads from
+    /// its input (not the row index, which the engine's filters see as numbered before any row is skipped).
+    /// </summary>
+    internal static ScalarExpr? SkipPredicate(IReadOnlyList<PushedFilter> filters, Schema scan, string? rowIndex)
+    {
+        ScalarExpr? combined = null;
+        foreach (PushedFilter filter in filters)
+        {
+            if (filter.Implied is not { } implied) continue;
+            if (ScalarExprOps.collectColumns(implied).Any(c => c == rowIndex || scan.GetFieldIndex(c) < 0)) continue;
+            combined = combined is null ? implied : ScalarExpr.NewBinary(BinaryOp.And, combined, implied);
+        }
+        return combined;
+    }
+
+    /// <summary>What the scan and its resolutions share; released by the last of them.</summary>
+    private sealed class SharedOwner(IDisposable owner)
+    {
+        private int _references = 1;
+
+        public SharedOwner Acquire()
+        {
+            if (Interlocked.Increment(ref _references) <= 1) throw new ObjectDisposedException(nameof(SharedOwner));
+            return this;
+        }
+
+        public void Release()
+        {
+            if (Interlocked.Decrement(ref _references) == 0) owner.Dispose();
+        }
+    }
+
+    private sealed class ManagedScanResolver(string name, ulong fingerprint, Scan scan, string? rowIndex,
+        Func<ScanRun, IEnumerable<RecordBatch>> read, SharedOwner owner) : ScanResolver(name, fingerprint, scan.Schema)
+    {
+        public override ScanPlan Resolve(ResolveRequest request)
+        {
+            Schema schema = request.Projection is { } projection
+                ? new Schema([.. projection.Select(c => Schema.GetFieldByName(c) ?? throw new InvalidOperationException($"The scan has no column \"{c}\"."))], Schema.Metadata)
+                : Schema;
+            ScalarExpr? filter = SkipPredicate(request.Filters, Schema, rowIndex);
+            ulong print = new FingerprintBuilder()
+                .Add(Fingerprint)
+                .Add(request.Projection)
+                .Add(filter is null ? null : request.Filters.Select(f => f.Document).ToList())
+                .Add(request.Limit ?? -1)
+                .Value;
+            var builder = new ManagedScanBuilder($"{Name} reader", print, schema, scan, rowIndex, read, owner.Acquire(), request.Limit, filter);
+            return new ScanPlan([Name], builder);
+        }
+
+        protected override void OnReleased() => owner.Release();
+    }
+
+    private sealed class ManagedScanBuilder(string name, ulong fingerprint, Schema schema, Scan scan, string? rowIndex,
+        Func<ScanRun, IEnumerable<RecordBatch>> read, SharedOwner owner, long? limit, ScalarExpr? filter)
+        : ScanReaderBuilder(name, fingerprint, schema)
+    {
+        public override IReadOnlyList<KeyValuePair<string, string>> Explain =>
+        [
+            .. limit is { } n ? (KeyValuePair<string, string>[])[new("limit", n.ToString(System.Globalization.CultureInfo.InvariantCulture))] : [],
+            .. filter is not null ? (KeyValuePair<string, string>[])[new("skips rows by", filter.ToString())] : [],
+        ];
+
+        public override ScanExecution BeginScan() => new Execution(this);
+
+        protected override void OnReleased() => owner.Release();
+
+        private Scan Shape => scan;
+
+        private string? RowIndex => rowIndex;
+
+        private IEnumerable<RecordBatch> Batches(ScanRun run) => read(run);
+
+        private ScanRun Run(string[] columns, bool indexed) => new(columns, indexed, limit, filter);
+
+        private sealed class Execution(ManagedScanBuilder builder) : ScanExecution
+        {
+            public override SourceReader OpenSource(string source) => new Reader(builder);
+        }
+
+        private sealed class Reader(ManagedScanBuilder builder) : SourceReader
+        {
+            public override Schema Schema => builder.Shape.Schema;
+
+            public override long CountRows()
+            {
+                // One column of the input is enough to count the rows a read delivers.
+                Field? first = Schema.FieldsList.FirstOrDefault(f => f.Name != builder.RowIndex);
+                long rows = 0;
+                foreach (RecordBatch batch in Read(first is null ? [builder.RowIndex!] : [first.Name], CancellationToken.None))
+                {
+                    rows += batch.Length;
+                    batch.Dispose();
+                }
+                return rows;
+            }
+
+            public override IEnumerable<RecordBatch> Read(IReadOnlyList<string> columns, CancellationToken cancellation)
+            {
+                bool indexed = builder.RowIndex is { } index && columns.Contains(index);
+                string[] reading = [.. columns.Where(c => c != builder.RowIndex)];
+                return Delivered(builder.Batches(builder.Run(reading, indexed)), indexed, cancellation);
+            }
+
+            private IEnumerable<RecordBatch> Delivered(IEnumerable<RecordBatch> batches, bool indexed, CancellationToken cancellation)
+            {
+                foreach (RecordBatch batch in batches)
+                {
+                    if (cancellation.IsCancellationRequested)
+                    {
+                        batch.Dispose();
+                        yield break;
+                    }
+                    yield return builder.Shape.Deliver(batch, indexed);
+                }
+            }
+        }
+    }
+}
+
+/// <summary>
+/// A 64-bit fingerprint of a scan's description (XxHash3 over length-prefixed parts): equal descriptions, equal
+/// fingerprints; the parts never run into each other. Stable within a process (plans are never serialized).
+/// </summary>
+internal sealed class FingerprintBuilder
+{
+    private readonly XxHash3 _hash = new();
+
+    public ulong Value => _hash.GetCurrentHashAsUInt64();
+
+    public FingerprintBuilder Add(string? text)
+    {
+        if (text is null) return Add(-1L);
+        Add((long)text.Length);
+        // The UTF-16 code units as they are: fingerprints are compared within one process only.
+        _hash.Append(MemoryMarshal.AsBytes(text.AsSpan()));
+        return this;
+    }
+
+    public FingerprintBuilder Add(long value)
+    {
+        Span<byte> bytes = stackalloc byte[sizeof(long)];
+        System.Buffers.Binary.BinaryPrimitives.WriteInt64LittleEndian(bytes, value);
+        _hash.Append(bytes);
+        return this;
+    }
+
+    public FingerprintBuilder Add(ulong value) => Add(unchecked((long)value));
+
+    public FingerprintBuilder Add(bool value) => Add(value ? 1L : 0L);
+
+    public FingerprintBuilder Add(char value) => Add((long)value);
+
+    public FingerprintBuilder Add(char? value) => Add(value is { } c ? c : -1L);
+
+    public FingerprintBuilder Add(ulong? value) => value is { } v ? Add(1L).Add(v) : Add(-1L);
+
+    /// <summary>A store's settings: its provider and options (an endpoint, a bucket's region …) say which data a URL names.</summary>
+    public FingerprintBuilder Add(Polars.NET.Core.Delta.CloudArgs? cloud) =>
+        cloud is null ? Add(-1L) : Add((long)cloud.Provider).Add(cloud.Keys).Add(cloud.Values);
+
+    /// <summary>An encoding by its code page and name (null: UTF-8, as the readers default).</summary>
+    public FingerprintBuilder Add(System.Text.Encoding? encoding) =>
+        encoding is null ? Add(-1L) : Add((long)encoding.CodePage).Add(encoding.WebName);
+
+    public FingerprintBuilder Add(IEnumerable<string>? texts)
+    {
+        if (texts is null) return Add(-1L);
+        IReadOnlyList<string> list = texts as IReadOnlyList<string> ?? [.. texts];
+        Add((long)list.Count);
+        foreach (string text in list) Add(text);
+        return this;
+    }
+
+    /// <summary>Every column: its name, its type (structurally, as the IR keys types) and whether it holds nulls.</summary>
+    public FingerprintBuilder Add(Schema schema)
+    {
+        Add((long)schema.FieldsList.Count);
+        foreach (Field field in schema.FieldsList)
+        {
+            Add(field.Name);
+            Add(LogicalType.NewArrow(field.DataType).Display);
+            Add(field.IsNullable);
+        }
+        return this;
+    }
+}

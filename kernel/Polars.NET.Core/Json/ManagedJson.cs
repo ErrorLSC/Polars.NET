@@ -13,6 +13,7 @@ using Kaminari.Seseragi.Files.Json;
 using Polars.NET.Core.Arrow;
 using Polars.NET.Core.Delta;
 using Polars.NET.Core.Enums;
+using Polars.NET.Core.IO.Plugins;
 using Polars.NET.Core.Wrappers;
 using JsonFormat = Kaminari.Seseragi.Files.Json.JsonFormat;
 
@@ -211,24 +212,42 @@ public static class ManagedJson
                 Partitioning = hivePartitioning ? HivePartitioning.On : HivePartitioning.Off,
             };
             JsonDataset dataset = JsonDataset.Open(path, options);
-            Schema read;
-            using (JsonDatasetReader probe = dataset.OpenReader(new JsonReadOptions { RowIndexColumn = rowIndexName })) read = probe.Schema;
-            var scan = new Scan(read, rowIndexName, rowIndexOffset, RowLimit(nRows));
-            return given.CastBack(ArrowStreamInterop.ScanStream(Batches, scan.Schema, strict: true, new Owners(dataset, owner)));
-
-            IEnumerable<RecordBatch> Batches(StreamScanRequest request)
+            Scan scan;
+            try
             {
-                var (columns, indexed, limit) = scan.Ask(request);
+                Schema read;
+                using (JsonDatasetReader probe = dataset.OpenReader(new JsonReadOptions { RowIndexColumn = rowIndexName })) read = probe.Schema;
+                scan = new Scan(read, rowIndexName, rowIndexOffset, limit: null);
+            }
+            catch
+            {
+                dataset.Dispose();
+                throw;
+            }
+            ulong fingerprint = new FingerprintBuilder()
+                .Add("ndjson").Add(path).Add(cloud).Add(scan.Schema).Add(inferSchemaLength).Add(ignoreErrors).Add(rowIndexName)
+                .Add((long)rowIndexOffset).Add(includePathColumn).Add(hivePartitioning)
+                .Value;
+            // The scan owns the dataset and its store from here on.
+            var owners = new Owners(dataset, owner);
+            owner = null;
+            LazyFrameHandle lf = ManagedScans.Open($"ndjson[{ManagedScans.Shown(path)}]", fingerprint, scan, rowIndexName, Batches, owners);
+            return given.CastBack(ManagedScans.Head(lf, RowLimit(nRows)));
+
+            IEnumerable<RecordBatch> Batches(ScanRun run)
+            {
                 var read = new JsonReadOptions
                 {
-                    Columns = columns,
-                    MaxRows = limit,
+                    Columns = run.Columns,
+                    MaxRows = run.Limit,
                     BatchSize = BatchRows(batchSize),
                     IgnoreErrors = ignoreErrors,
-                    RowIndexColumn = indexed ? rowIndexName : null,
+                    RowIndexColumn = run.Indexed ? rowIndexName : null,
+                    Filter = run.Filter,
+                    FilterRows = run.Filter is not null,
                 };
                 using JsonDatasetReader reader = dataset.OpenReader(read);
-                foreach (RecordBatch batch in reader.ReadBatches()) yield return scan.Deliver(batch, indexed);
+                foreach (RecordBatch batch in reader.ReadBatches()) yield return batch;
             }
         }
         catch
@@ -247,38 +266,54 @@ public static class ManagedJson
         ulong? batchSize, ulong? inferSchemaLength, ulong? nRows, bool ignoreErrors, string? rowIndexName, uint rowIndexOffset)
     {
         ArgumentNullException.ThrowIfNull(owner);
+        Schema full;
+        Scan scan;
+        GivenTypes given;
         try
         {
-            // The columns, decided once: every run reads with them (nothing inferred again).
-            Schema full;
-            using var given = new GivenTypes(schema, schemaOverrides, ignoreErrors);
-            var first = new JsonReadOptions { Schema = given.Schema, SchemaOverrides = given.Overrides, InferSchemaLength = InferLength(inferSchemaLength) };
-            using (JsonReader probe = JsonReader.Open(bytes, first)) full = probe.Schema;
-            Schema read;
-            using (JsonReader probe = JsonReader.Open(bytes, new JsonReadOptions { Schema = full, RowIndexColumn = rowIndexName })) read = probe.Schema;
-            var scan = new Scan(read, rowIndexName, rowIndexOffset, RowLimit(nRows));
-            return given.CastBack(ArrowStreamInterop.ScanStream(Batches, scan.Schema, strict: true, owner));
-
-            IEnumerable<RecordBatch> Batches(StreamScanRequest request)
-            {
-                var (columns, indexed, limit) = scan.Ask(request);
-                var options = new JsonReadOptions
-                {
-                    Schema = full,
-                    Columns = columns,
-                    MaxRows = limit,
-                    BatchSize = BatchRows(batchSize),
-                    IgnoreErrors = ignoreErrors,
-                    RowIndexColumn = indexed ? rowIndexName : null,
-                };
-                using JsonReader reader = JsonReader.Open(bytes, options);
-                foreach (RecordBatch batch in reader.ReadBatches()) yield return scan.Deliver(batch, indexed);
-            }
+            given = new GivenTypes(schema, schemaOverrides, ignoreErrors);
         }
         catch
         {
             owner.Dispose();
             throw;
+        }
+        using (given)
+        {
+            try
+            {
+                // The columns, decided once: every run reads with them (nothing inferred again).
+                var first = new JsonReadOptions { Schema = given.Schema, SchemaOverrides = given.Overrides, InferSchemaLength = InferLength(inferSchemaLength) };
+                using (JsonReader probe = JsonReader.Open(bytes, first)) full = probe.Schema;
+                Schema read;
+                using (JsonReader probe = JsonReader.Open(bytes, new JsonReadOptions { Schema = full, RowIndexColumn = rowIndexName })) read = probe.Schema;
+                scan = new Scan(read, rowIndexName, rowIndexOffset, limit: null);
+            }
+            catch
+            {
+                owner.Dispose();
+                throw;
+            }
+            // Memory is read by this scan only: no other scan reads the same data.
+            LazyFrameHandle lf = ManagedScans.Open("ndjson[memory]", ManagedScans.Identity(), scan, rowIndexName, Batches, owner);
+            return given.CastBack(ManagedScans.Head(lf, RowLimit(nRows)));
+        }
+
+        IEnumerable<RecordBatch> Batches(ScanRun run)
+        {
+            var options = new JsonReadOptions
+            {
+                Schema = full,
+                Columns = run.Columns,
+                MaxRows = run.Limit,
+                BatchSize = BatchRows(batchSize),
+                IgnoreErrors = ignoreErrors,
+                RowIndexColumn = run.Indexed ? rowIndexName : null,
+                Filter = run.Filter,
+                FilterRows = run.Filter is not null,
+            };
+            using JsonReader reader = JsonReader.Open(bytes, options);
+            foreach (RecordBatch batch in reader.ReadBatches()) yield return batch;
         }
     }
 

@@ -16,7 +16,7 @@ namespace Polars.NET.Core.Linq.Backend;
 /// tables that filters most often reduce are dimensions, which is what makes reading them whole affordable. In-memory
 /// frames have no stable identity to remember the result by, and are small enough for fixed selectivities.
 /// </summary>
-internal static class PolarsColumnStatistics
+internal static partial class PolarsColumnStatistics
 {
     private const long MaxTableRows = 500_000L;
     private const int MaxListedValues = 32;
@@ -144,8 +144,7 @@ internal static class PolarsColumnStatistics
     public static (LiteralValue Low, LiteralValue High)? TryGetRange(LazyFrameHandle handle, LogicalSchema schema, string column)
     {
         if (FieldOf(schema, column) is not { } field || !IsNumberLike(field.DataType)) return null;
-        string identity = PolarsWrapper.Explain(handle, false);
-        if (!identity.Contains("SCAN [")) return null;
+        if (FileTableIdentity(handle) is not { } identity) return null;
         if (Ranges.Count >= MaxRemembered) Ranges.Clear();
         var entry = Ranges.GetOrAdd((identity, column), _ => new Lazy<(LiteralValue, LiteralValue)?>(() =>
         {
@@ -166,8 +165,7 @@ internal static class PolarsColumnStatistics
     {
         if (rows is not { } tableRows || tableRows > MaxTableRows) return null;
         if (FieldOf(schema, column) is not { } field || !(IsNumberLike(field.DataType) || IsText(field.DataType))) return null;
-        string identity = PolarsWrapper.Explain(handle, false);
-        if (!identity.Contains("SCAN [")) return null;
+        if (FileTableIdentity(handle) is not { } identity) return null;
         if (Cache.Count >= MaxRemembered) Cache.Clear();
         var entry = Cache.GetOrAdd((identity, column), _ => new Lazy<ColumnStatistics?>(() =>
         {
@@ -182,4 +180,20 @@ internal static class PolarsColumnStatistics
         }));
         return entry.Value;
     }
+
+    /// <summary>
+    /// The plan of a file table (what its statistics are remembered by), or null for another plan: a file scan of the
+    /// engine, or a managed scan of files (a resolver of the seseragi plugin, its resolution count left out: it grows
+    /// as queries run). A managed scan of memory has no identity to remember it by.
+    /// </summary>
+    private static string? FileTableIdentity(LazyFrameHandle handle)
+    {
+        string plan = PolarsWrapper.Explain(handle, false);
+        if (plan.Contains("RESOLVER[name: seseragi: ", StringComparison.Ordinal))
+            return plan.Contains("[memory]", StringComparison.Ordinal) ? null : CachedResolves().Replace(plan, "");
+        return plan.Contains("SCAN [", StringComparison.Ordinal) ? plan : null;
+    }
+
+    [System.Text.RegularExpressions.GeneratedRegex(@", cached_resolves: \d+")]
+    private static partial System.Text.RegularExpressions.Regex CachedResolves();
 }

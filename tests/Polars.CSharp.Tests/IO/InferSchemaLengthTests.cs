@@ -18,8 +18,9 @@ public class InferSchemaLengthTests
     public void Csv_Default_Infers_From_100_Rows()
     {
         using var csv = Csv();
-        // The managed reader names the row, the value and the fixes (a scan's error reaches the caller through the engine).
-        Exception scanned = Assert.Throws<global::Polars.NET.Core.Exceptions.PolarsException>(() => LazyFrame.ScanCsv(csv.Path).Collect());
+        // The managed reader names the row, the value and the fixes; a scan's error reaches the caller as the reader's
+        // own exception (relayed through the engine).
+        Exception scanned = Assert.Throws<Kaminari.Seseragi.Files.Csv.CsvValueException>(() => LazyFrame.ScanCsv(csv.Path).Collect());
         Exception read = Assert.Throws<Kaminari.Seseragi.Files.Csv.CsvValueException>(() => DataFrame.ReadCsv(csv.Path));
         foreach (var e in new[] { scanned, read })
         {
