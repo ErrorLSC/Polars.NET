@@ -14,6 +14,9 @@ namespace Polars.Integration.Tests;
 /// </summary>
 public static class RealAws
 {
+    /// <summary>The tests on AWS: one at a time, cleaned up once all are done (a class's cleanup would take another's files).</summary>
+    public const string Collection = "Real AWS";
+
     private static readonly Lazy<(string Bucket, string KeyId, string Secret, string? Region, string? RoleArn)?> s_settings = new(Load);
 
     /// <summary>A role the key may assume (SESERAGI_AWS_ROLE_ARN, or the fifth line of .secrets/AWS), for temporary credentials.</summary>
@@ -254,7 +257,8 @@ public sealed class RealAwsCleanup : IDisposable
 /// Delta kernel end to end (streamed writes, DML, optimize, vacuum, identity columns, row tracking).
 /// </summary>
 [Trait("RealCloud", "Aws")]
-public sealed class RealCloudAwsTests : IClassFixture<RealAwsCleanup>
+[Collection(RealAws.Collection)]
+public sealed class RealCloudAwsTests
 {
     private static string Backend => ObjectStoreFileSystem.ConfiguredBackend == ObjectStoreBackend.Native ? "native" : "managed";
 
@@ -393,7 +397,8 @@ public sealed class RealCloudAwsTests : IClassFixture<RealAwsCleanup>
 /// machines older than 30 minutes. Fedora 44, since the native library needs glibc 2.43.
 /// </remarks>
 [Trait("RealCloud", "AwsEc2")]
-public sealed class RealCloudAwsMachineTests : IClassFixture<RealAwsCleanup>
+[Collection(RealAws.Collection)]
+public sealed class RealCloudAwsMachineTests
 {
     private const string Tag = "seseragi-test";
     private const string InstanceProfile = "seseragi-test-instance";

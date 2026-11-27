@@ -42,29 +42,7 @@ public sealed class RealCloudSweep
             foreach (AzureAccountKind kind in Enum.GetValues<AzureAccountKind>())
             {
                 BlobContainerClient container = RealAzure.ContainerClient(kind);
-                // On ADLS the listing holds the directories as well, and a directory goes only once it is empty:
-                // deepest first, pass after pass until a pass deletes nothing. Aborted block uploads leave blobs of
-                // uncommitted blocks (invisible to plain listings, gone after a week) that keep directories too.
-                int deleted = 0;
-                for (int pass = 0, progress = 1; progress > 0 && pass < 10; pass++)
-                {
-                    progress = 0;
-                    var names = container.GetBlobs(BlobTraits.None, BlobStates.Uncommitted, Prefix + "/", default).Select(b => b.Name).Append(Prefix)
-                        .OrderByDescending(n => n.Count(c => c == '/')).ThenByDescending(n => n.Length).ToList();
-                    foreach (string name in names)
-                    {
-                        try
-                        {
-                            if (container.GetBlobClient(name).DeleteIfExists()) progress++;
-                        }
-                        catch (Azure.RequestFailedException e) when (e.ErrorCode == "DirectoryIsNotEmpty")
-                        {
-                            // Emptied by a later pass.
-                        }
-                    }
-                    deleted += progress;
-                }
-                swept.Add($"azure {kind}: {deleted}");
+                swept.Add($"azure {kind}: {RealAzure.DeleteBelow(container, Prefix)}");
                 Assert.Empty(container.GetBlobs(BlobTraits.None, BlobStates.Uncommitted, Prefix + "/", default));
             }
         }

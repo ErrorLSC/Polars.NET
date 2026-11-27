@@ -68,6 +68,40 @@ public static class RealAzure
     /// <summary>The prefix of this test run; everything below it is deleted when the run ends.</summary>
     public static string RunPrefix { get; } = $"seseragi-tests/{DateTime.UtcNow:yyyyMMdd-HHmmss}-{Guid.NewGuid().ToString("N")[..8]}";
 
+    /// <summary>The tests on Azure: one at a time, cleaned up once all are done (a class's cleanup would take another's files).</summary>
+    public const string Collection = "Real Azure";
+
+    /// <summary>
+    /// Deletes everything below <paramref name="prefix"/>, then <paramref name="prefix"/> and <paramref name="parents"/>
+    /// themselves when they are directories left empty; returns how many went. On ADLS the listing holds the directories
+    /// as well, and a directory goes only once it is empty: deepest first, pass after pass until a pass deletes
+    /// nothing. Aborted block uploads leave blobs of uncommitted blocks (invisible to plain listings, gone after a week)
+    /// that keep their directories too: they are listed and deleted.
+    /// </summary>
+    public static int DeleteBelow(BlobContainerClient container, string prefix, params string[] parents)
+    {
+        int deleted = 0;
+        for (int pass = 0, progress = 1; progress > 0 && pass < 10; pass++)
+        {
+            progress = 0;
+            var names = container.GetBlobs(BlobTraits.None, BlobStates.Uncommitted, prefix + "/", default).Select(b => b.Name).Append(prefix).Concat(parents)
+                .OrderByDescending(n => n.Count(c => c == '/')).ThenByDescending(n => n.Length).ToList();
+            foreach (string name in names)
+            {
+                try
+                {
+                    if (container.GetBlobClient(name).DeleteIfExists()) progress++;
+                }
+                catch (Azure.RequestFailedException e) when (e.ErrorCode == "DirectoryIsNotEmpty")
+                {
+                    // Emptied by a later pass, or (a parent) still holding another run's files.
+                }
+            }
+            deleted += progress;
+        }
+        return deleted;
+    }
+
     /// <summary>The URL of a path of the container (no trailing slash): az:// for the flat account, abfss:// for ADLS.</summary>
     public static string Url(AzureAccountKind kind, string path) => kind == AzureAccountKind.Blob
         ? $"az://{Container}/{path}"
@@ -200,16 +234,7 @@ public sealed class RealAzureCleanup : IDisposable
         {
             try
             {
-                BlobContainerClient container = RealAzure.ContainerClient(kind);
-                // On ADLS the listing holds the directories as well; children go before their directory.
-                var names = container.GetBlobs(BlobTraits.None, BlobStates.None, RealAzure.RunPrefix + "/", default).Select(b => b.Name)
-                    .Append(RealAzure.RunPrefix).Append("seseragi-tests")
-                    .OrderByDescending(n => n.Count(c => c == '/')).ThenByDescending(n => n.Length).ToList();
-                foreach (string name in names)
-                {
-                    try { container.GetBlobClient(name).DeleteIfExists(); }
-                    catch (Azure.RequestFailedException) { } // a directory still holding another run's files
-                }
+                RealAzure.DeleteBelow(RealAzure.ContainerClient(kind), RealAzure.RunPrefix, "seseragi-tests");
             }
             catch (Exception e)
             {
@@ -226,7 +251,8 @@ public sealed class RealAzureCleanup : IDisposable
 /// the Delta kernel end to end.
 /// </summary>
 [Trait("RealCloud", "Azure")]
-public sealed class RealCloudAzureTests : IClassFixture<RealAzureCleanup>
+[Collection(RealAzure.Collection)]
+public sealed class RealCloudAzureTests
 {
     private static string Backend => ObjectStoreFileSystem.ConfiguredBackend == ObjectStoreBackend.Native ? "native" : "managed";
 

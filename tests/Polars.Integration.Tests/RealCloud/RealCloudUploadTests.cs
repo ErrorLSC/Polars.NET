@@ -105,6 +105,7 @@ internal static class RealUploads
 }
 
 [Trait("RealCloud", "Aws")]
+[Collection(RealAws.Collection)]
 public sealed class RealCloudAwsUploadTests
 {
     [AwsFact]
@@ -129,6 +130,7 @@ public sealed class RealCloudAwsUploadTests
 }
 
 [Trait("RealCloud", "Azure")]
+[Collection(RealAzure.Collection)]
 public sealed class RealCloudAzureUploadTests
 {
     [AzureTheory]
@@ -151,6 +153,7 @@ public sealed class RealCloudAzureUploadTests
 }
 
 [Trait("RealCloud", "Gcs")]
+[Collection(RealGcs.Collection)]
 public sealed class RealCloudGcsUploadTests
 {
     [GcsFact]

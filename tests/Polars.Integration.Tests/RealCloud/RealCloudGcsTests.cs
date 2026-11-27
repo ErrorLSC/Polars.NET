@@ -28,6 +28,9 @@ public enum GcsSignIn
 /// </summary>
 public static class RealGcs
 {
+    /// <summary>The tests on GCS: one at a time, cleaned up once all are done (a class's cleanup would take another's files).</summary>
+    public const string Collection = "Real GCS";
+
     private sealed record Settings(string Bucket, string? Project, string KeyFile);
 
     private static readonly Lazy<Settings?> s_settings = new(Load);
@@ -177,7 +180,8 @@ public sealed class RealGcsCleanup : IDisposable
 /// file, key JSON, access token), put-if-absent races, and the Delta kernel end to end.
 /// </summary>
 [Trait("RealCloud", "Gcs")]
-public sealed class RealCloudGcsTests : IClassFixture<RealGcsCleanup>
+[Collection(RealGcs.Collection)]
+public sealed class RealCloudGcsTests
 {
     private static string Backend => ObjectStoreFileSystem.ConfiguredBackend == ObjectStoreBackend.Native ? "native" : "managed";
 

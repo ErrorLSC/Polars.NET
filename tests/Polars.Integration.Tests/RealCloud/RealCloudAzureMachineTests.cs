@@ -113,7 +113,8 @@ public sealed class AzureVmFactAttribute : FactAttribute
 /// than 30 minutes. Fedora 44, since the native library needs glibc 2.43.
 /// </remarks>
 [Trait("RealCloud", "AzureVm")]
-public sealed class RealCloudAzureMachineTests : IClassFixture<RealAzureCleanup>
+[Collection(RealAzure.Collection)]
+public sealed class RealCloudAzureMachineTests
 {
     private const string Tag = "seseragi-test";
     private const string IdentityName = "seseragi-test-vm";

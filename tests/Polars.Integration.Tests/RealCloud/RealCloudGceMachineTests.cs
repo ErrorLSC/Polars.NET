@@ -111,7 +111,8 @@ public sealed class GceVmFactAttribute : FactAttribute
 /// process die first. Fedora 44, since the native library needs glibc 2.43.
 /// </remarks>
 [Trait("RealCloud", "GceVm")]
-public sealed class RealCloudGceMachineTests : IClassFixture<RealGcsCleanup>
+[Collection(RealGcs.Collection)]
+public sealed class RealCloudGceMachineTests
 {
     private const string Label = "seseragi-test";
     private const string MachineType = "e2-small";
