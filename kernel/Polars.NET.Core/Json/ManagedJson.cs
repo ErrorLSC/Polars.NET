@@ -231,7 +231,7 @@ public static class ManagedJson
             // The scan owns the dataset and its store from here on.
             var owners = new Owners(dataset, owner);
             owner = null;
-            LazyFrameHandle lf = ManagedScans.Open($"ndjson[{ManagedScans.Shown(path)}]", fingerprint, scan, rowIndexName, Batches, owners);
+            LazyFrameHandle lf = ManagedScans.Open($"ndjson[{ManagedScans.Shown(path)}]", fingerprint, scan, rowIndexName, Batches, Exactly, owners);
             return given.CastBack(ManagedScans.Head(lf, RowLimit(nRows)));
 
             IEnumerable<RecordBatch> Batches(ScanRun run)
@@ -248,6 +248,12 @@ public static class ManagedJson
                 };
                 using JsonDatasetReader reader = dataset.OpenReader(read);
                 foreach (RecordBatch batch in reader.ReadBatches()) yield return batch;
+            }
+
+            bool Exactly(Kaminari.Samidare.IR.ScalarExpr filter)
+            {
+                using JsonDatasetReader reader = dataset.OpenReader(new JsonReadOptions { IgnoreErrors = ignoreErrors, Filter = filter, FilterRows = true });
+                return reader.FiltersExactly;
             }
         }
         catch
@@ -295,7 +301,7 @@ public static class ManagedJson
                 throw;
             }
             // Memory is read by this scan only: no other scan reads the same data.
-            LazyFrameHandle lf = ManagedScans.Open("ndjson[memory]", ManagedScans.Identity(), scan, rowIndexName, Batches, owner);
+            LazyFrameHandle lf = ManagedScans.Open("ndjson[memory]", ManagedScans.Identity(), scan, rowIndexName, Batches, Exactly, owner);
             return given.CastBack(ManagedScans.Head(lf, RowLimit(nRows)));
         }
 
@@ -314,6 +320,12 @@ public static class ManagedJson
             };
             using JsonReader reader = JsonReader.Open(bytes, options);
             foreach (RecordBatch batch in reader.ReadBatches()) yield return batch;
+        }
+
+        bool Exactly(Kaminari.Samidare.IR.ScalarExpr filter)
+        {
+            using JsonReader reader = JsonReader.Open(bytes, new JsonReadOptions { Schema = full, IgnoreErrors = ignoreErrors, Filter = filter, FilterRows = true });
+            return reader.FiltersExactly;
         }
     }
 

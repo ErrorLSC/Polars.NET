@@ -114,9 +114,9 @@ public sealed record CsvWriteArgs
 /// CSV read and written by the managed reader and writer (Seseragi.Files): frames come in and go out as Arrow record
 /// batches. Paths (files, directories, globs, URLs of a store) are read as datasets (<see cref="CsvDataset"/>: the
 /// files' columns united by name, the types inferred from the first files); memory and streams as one input. Scans
-/// infer the columns once, when made, and read the data each time the plan runs (the columns and leading rows the
-/// query needs; the engine filters the rows: a predicate is pushed down only by paths that hold it as IR, such as
-/// LINQ). Writes and sinks encode on every core, sinks batch by batch as the streaming engine produces them;
+/// infer the columns once, when made, and read the data each time the plan runs, as the engine's resolver (the
+/// seseragi I/O plugin: the columns, leading rows and filters the query pushes, the filters applied exactly where the
+/// reader can). Writes and sinks encode on every core, sinks batch by batch as the streaming engine produces them;
 /// partitioned sinks write Hive partitions (<see cref="CsvDatasetWriter"/>).
 /// </summary>
 /// <remarks>
@@ -432,7 +432,7 @@ public static class ManagedCsv
         GivenTypes given = source.Given!;
         // The scan owns the source (the dataset, its store, the types given) from here on.
         LazyFrameHandle lf = ManagedScans.Open($"csv[{ManagedScans.Shown(path)}]", Fingerprint(path, args, cloud, scan.Schema), scan,
-            args.RowIndexName, Batches, source);
+            args.RowIndexName, Batches, Exactly, source);
         return given.CastBack(ManagedScans.Head(lf, RowLimit(args.NRows)));
 
         IEnumerable<RecordBatch> Batches(ScanRun run)
@@ -441,6 +441,12 @@ public static class ManagedCsv
                 with { Filter = run.Filter, FilterRows = run.Filter is not null };
             using CsvDatasetReader reader = dataset.OpenReader(options);
             foreach (RecordBatch batch in reader.ReadBatches()) yield return batch;
+        }
+
+        bool Exactly(Kaminari.Samidare.IR.ScalarExpr filter)
+        {
+            using CsvDatasetReader reader = dataset.OpenReader(new CsvReadOptions { IgnoreErrors = args.IgnoreErrors, Filter = filter, FilterRows = true });
+            return reader.FiltersExactly;
         }
     }
 
@@ -497,13 +503,19 @@ public static class ManagedCsv
                 throw;
             }
             // Memory is read by this scan only: no other scan reads the same data.
-            LazyFrameHandle lf = ManagedScans.Open("csv[memory]", ManagedScans.Identity(), scan, args.RowIndexName, Batches, owner);
+            LazyFrameHandle lf = ManagedScans.Open("csv[memory]", ManagedScans.Identity(), scan, args.RowIndexName, Batches, Exactly, owner);
             return given.CastBack(ManagedScans.Head(lf, RowLimit(args.NRows)));
 
             IEnumerable<RecordBatch> Batches(ScanRun run)
             {
                 using CsvReader reader = CsvReader.Open(bytes, RunOptions(format, args, run.Columns, run.Indexed, run.Limit) with { Filter = run.Filter, FilterRows = run.Filter is not null });
                 foreach (RecordBatch batch in reader.ReadBatches()) yield return batch;
+            }
+
+            bool Exactly(Kaminari.Samidare.IR.ScalarExpr filter)
+            {
+                using CsvReader reader = CsvReader.Open(bytes, format with { Filter = filter, FilterRows = true });
+                return reader.FiltersExactly;
             }
         }
     }

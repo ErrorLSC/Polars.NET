@@ -33,15 +33,17 @@ internal static class ManagedScans
     /// <param name="scan">The scan's columns as the engine takes them, and how batches are delivered.</param>
     /// <param name="read">The reader's raw batches for a run.</param>
     /// <param name="rowIndex">The row index's name (the scan's first column), or null.</param>
+    /// <param name="appliesExactly">Whether the reader, given a filter, delivers exactly the rows it holds for (asked
+    /// while planning: open a reader, read nothing).</param>
     /// <param name="owner">What the reads read from.</param>
     public static LazyFrameHandle Open(string name, ulong fingerprint, Scan scan, string? rowIndex,
-        Func<ScanRun, IEnumerable<RecordBatch>> read, IDisposable owner)
+        Func<ScanRun, IEnumerable<RecordBatch>> read, Func<ScalarExpr, bool> appliesExactly, IDisposable owner)
     {
         var shared = new SharedOwner(owner);
         ManagedScanResolver resolver;
         try
         {
-            resolver = new ManagedScanResolver(name, fingerprint, scan, rowIndex, read, shared);
+            resolver = new ManagedScanResolver(name, fingerprint, scan, rowIndex, read, appliesExactly, shared);
         }
         catch
         {
@@ -66,20 +68,58 @@ internal static class ManagedScans
     }
 
     /// <summary>
-    /// The predicate a reader may skip rows by: the pushed filters' implied predicates over the columns it reads from
-    /// its input (not the row index, which the engine's filters see as numbered before any row is skipped).
+    /// The filter a read applies, and the pushed filters it applies exactly (the engine leaves those out). A pushed
+    /// filter is applied exactly when it translates whole, reads the input's columns only (not the row index, which
+    /// the engine's filters see numbered before any row is skipped), holds no cast (the document does not say whether
+    /// a cast is strict: a strict one that fails must fail the query, not drop the row) and the reader applies it
+    /// exactly. The other filters' implied predicates only let the reader skip rows, and are left out when they would
+    /// make the filter inexact.
     /// </summary>
-    internal static ScalarExpr? SkipPredicate(IReadOnlyList<PushedFilter> filters, Schema scan, string? rowIndex)
+    internal static (ScalarExpr? Filter, int[] Applied) ReadFilter(IReadOnlyList<PushedFilter> filters, Schema scan, string? rowIndex,
+        Func<ScalarExpr, bool> appliesExactly)
     {
-        ScalarExpr? combined = null;
+        List<PushedFilter> exact = [];
+        List<ScalarExpr> skipping = [];
         foreach (PushedFilter filter in filters)
         {
-            if (filter.Implied is not { } implied) continue;
-            if (ScalarExprOps.collectColumns(implied).Any(c => c == rowIndex || scan.GetFieldIndex(c) < 0)) continue;
-            combined = combined is null ? implied : ScalarExpr.NewBinary(BinaryOp.And, combined, implied);
+            if (filter.Exact is { } whole && OverInput(whole) && !HasCast(whole) && Exactly(whole)) exact.Add(filter);
+            else if (filter.Implied is { } implied && OverInput(implied)) skipping.Add(implied);
         }
-        return combined;
+        int[] applied = [.. exact.Select(static f => f.Index)];
+        ScalarExpr? exactFilter = And([.. exact.Select(static f => f.Exact!)]);
+        ScalarExpr? all = And([.. exact.Select(static f => f.Exact!), .. skipping]);
+        if (exact.Count == 0 || skipping.Count == 0 || all is null || Exactly(all)) return (all, applied);
+        return (exactFilter, applied);
+
+        // A reader that cannot tell (its probe failed) applies nothing exactly: the engine filters.
+        bool Exactly(ScalarExpr filter)
+        {
+            try
+            {
+                return appliesExactly(filter);
+            }
+            catch (Exception e) when (e is not OutOfMemoryException)
+            {
+                return false;
+            }
+        }
+
+        bool OverInput(ScalarExpr expr) => ScalarExprOps.collectColumns(expr).All(c => c != rowIndex && scan.GetFieldIndex(c) >= 0);
+
+        static ScalarExpr? And(ScalarExpr[] parts) =>
+            parts.Length == 0 ? null : parts.Skip(1).Aggregate(parts[0], static (a, b) => ScalarExpr.NewBinary(BinaryOp.And, a, b));
     }
+
+    /// <summary>Whether the expression holds a cast (or a node the translator does not make, counted as one).</summary>
+    private static bool HasCast(ScalarExpr expr) => expr switch
+    {
+        ScalarExpr.Column or ScalarExpr.Literal => false,
+        ScalarExpr.Binary b => HasCast(b.left) || HasCast(b.right),
+        ScalarExpr.Unary u => HasCast(u.expr),
+        ScalarExpr.InList i => HasCast(i.expr),
+        ScalarExpr.Function f => f.args.Any(HasCast),
+        _ => true,
+    };
 
     /// <summary>What the scan and its resolutions share; released by the last of them.</summary>
     private sealed class SharedOwner(IDisposable owner)
@@ -99,14 +139,15 @@ internal static class ManagedScans
     }
 
     private sealed class ManagedScanResolver(string name, ulong fingerprint, Scan scan, string? rowIndex,
-        Func<ScanRun, IEnumerable<RecordBatch>> read, SharedOwner owner) : ScanResolver(name, fingerprint, scan.Schema)
+        Func<ScanRun, IEnumerable<RecordBatch>> read, Func<ScalarExpr, bool> appliesExactly, SharedOwner owner)
+        : ScanResolver(name, fingerprint, scan.Schema)
     {
         public override ScanPlan Resolve(ResolveRequest request)
         {
             Schema schema = request.Projection is { } projection
                 ? new Schema([.. projection.Select(c => Schema.GetFieldByName(c) ?? throw new InvalidOperationException($"The scan has no column \"{c}\"."))], Schema.Metadata)
                 : Schema;
-            ScalarExpr? filter = SkipPredicate(request.Filters, Schema, rowIndex);
+            var (filter, applied) = ReadFilter(request.Filters, Schema, rowIndex, appliesExactly);
             ulong print = new FingerprintBuilder()
                 .Add(Fingerprint)
                 .Add(request.Projection)
@@ -114,7 +155,7 @@ internal static class ManagedScans
                 .Add(request.Limit ?? -1)
                 .Value;
             var builder = new ManagedScanBuilder($"{Name} reader", print, schema, scan, rowIndex, read, owner.Acquire(), request.Limit, filter);
-            return new ScanPlan([Name], builder);
+            return new ScanPlan([Name], builder, applied);
         }
 
         protected override void OnReleased() => owner.Release();
@@ -127,7 +168,7 @@ internal static class ManagedScans
         public override IReadOnlyList<KeyValuePair<string, string>> Explain =>
         [
             .. limit is { } n ? (KeyValuePair<string, string>[])[new("limit", n.ToString(System.Globalization.CultureInfo.InvariantCulture))] : [],
-            .. filter is not null ? (KeyValuePair<string, string>[])[new("skips rows by", filter.ToString())] : [],
+            .. filter is not null ? (KeyValuePair<string, string>[])[new("filters rows by", filter.ToString())] : [],
         ];
 
         public override ScanExecution BeginScan() => new Execution(this);

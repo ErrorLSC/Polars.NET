@@ -59,7 +59,7 @@ public class ManagedScanPushdownTests(ITestOutputHelper output) : IDisposable
         using var q = lf.Filter(Pl.Col("id") < 10).Select(Pl.Col("id"));
         string plan = q.Explain();
         output.WriteLine(plan);
-        Assert.Contains("skips rows by: Binary (Lt, Column \"id\"", plan);
+        Assert.Contains("filters rows by: Binary (Lt, Column \"id\"", plan);
     }
 
     [Fact]

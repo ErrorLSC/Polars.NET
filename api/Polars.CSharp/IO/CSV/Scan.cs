@@ -56,8 +56,9 @@ public partial class LazyFrame : IDisposable
     /// <param name="hivePartitioning">Whether <c>key=value</c> directories of the paths are columns (off by default).</param>
     /// <returns>A new LazyFrame.</returns>
     /// <remarks>
-    /// The query's filters run on the batches read (a predicate is pushed into the reader only by queries that hold it
-    /// as their own expression tree, such as LINQ). Errors are <see cref="Kaminari.Seseragi.Files.Csv.CsvFormatException"/>
+    /// The query's filters are pushed into the reader: it skips the rows they reject (decoding only the columns they
+    /// read), leaves out the partitions they rule out, and applies exactly the ones it can (the engine applies the
+    /// rest). Errors are <see cref="Kaminari.Seseragi.Files.Csv.CsvFormatException"/>
     /// (malformed CSV) and <see cref="Kaminari.Seseragi.Files.Csv.CsvValueException"/> (a value its column cannot hold),
     /// naming the file, the row and the column.
     /// </remarks>

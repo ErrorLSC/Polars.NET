@@ -148,7 +148,7 @@ module CsvRead =
         /// <param name="ignoreExtraColumns">Columns of later files the first files lack are passed over (else an error).</param>
         /// <param name="hivePartitioning">Whether <c>key=value</c> directories of the paths are columns (off by default).</param>
         /// <remarks>
-        /// The query's filters run on the batches read. Errors are <c>CsvFormatException</c> (malformed CSV) and
+        /// The query's filters are pushed into the reader (rows and partitions they rule out skipped, those it can applied exactly). Errors are <c>CsvFormatException</c> (malformed CSV) and
         /// <c>CsvValueException</c> (a value its column cannot hold), naming the file, the row and the column.
         /// </remarks>
         static member ScanCsv

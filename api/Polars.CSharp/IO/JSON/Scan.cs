@@ -8,7 +8,8 @@ public partial class LazyFrame : IDisposable
     /// <summary>
     /// Lazily read newline delimited JSON (NDJSON): a file, a directory of files, a glob, or any of them on a cloud store.
     /// The files are listed and the columns inferred now (from the first file holding records); the data is read each
-    /// time the query runs: only the columns it reads and the leading rows it keeps.
+    /// time the query runs: only the columns it reads and the leading rows it keeps, its filters pushed into the reader
+    /// (applied exactly where the reader can; the engine applies the rest).
     /// </summary>
     /// <param name="path">The file, directory or glob (<c>s3://…</c>, <c>az://…</c>, <c>gs://…</c> on a store).</param>
     /// <param name="schema">Every column and its type: nothing is inferred, fields it does not name are passed over, fields a record lacks are nulls.</param>
