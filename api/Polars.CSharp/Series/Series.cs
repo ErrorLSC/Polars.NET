@@ -99,6 +99,10 @@ public partial class Series : IDisposable, IEquatable<Series>
     /// </summary>
     public SeriesStructOps Struct => new(this);
     /// <summary>
+    /// Access map operations (<c>map[key, value]</c> series).
+    /// </summary>
+    public SeriesMapOps MapOps => new(this);
+    /// <summary>
     /// Access binary operations.
     /// </summary>
     public SeriesBinaryOps Bin => new(this);

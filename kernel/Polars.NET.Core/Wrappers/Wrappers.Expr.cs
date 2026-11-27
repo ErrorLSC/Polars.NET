@@ -890,6 +890,15 @@ public readonly partial struct PolarsWrapper
     }
 
     public static ExprHandle ListLen(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_list_len, e);
+    /// <summary>A list of key / value structs as a Map (a key repeated: its first position, its last value).</summary>
+    public static ExprHandle ListToMap(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_list_to_map, e);
+    // --- Map namespace ---
+    public static ExprHandle MapEntries(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_map_entries, e);
+    public static ExprHandle MapKeys(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_map_keys, e);
+    public static ExprHandle MapValues(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_map_values, e);
+    public static ExprHandle MapLen(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_map_len, e);
+    public static ExprHandle MapContainsKey(ExprHandle e, ExprHandle key) => BinaryOp(NativeBindings.pl_expr_map_contains_key, e, key);
+    public static ExprHandle MapGet(ExprHandle e, ExprHandle key) => BinaryOp(NativeBindings.pl_expr_map_get, e, key);
     // --- List Aggs ---
     public static ExprHandle ListSum(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_list_sum, e);
     public static ExprHandle ListMin(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_list_min, e);

@@ -265,6 +265,12 @@ public readonly struct SeriesListOps
     /// <returns>Series of data type Array.</returns>
     public Series ToArray(long width) => Apply(e => e.List.ToArray(width));
     /// <summary>
+    /// Convert a list of <c>{key, value}</c> structs (the field names must be <c>key</c> and <c>value</c>) into a Map.
+    /// A key repeated within a list keeps one entry: at its first position, with its last value. A null key is refused.
+    /// </summary>
+    /// <returns>Series of data type Map.</returns>
+    public Series ToMap() => Apply(static e => e.List.ToMap());
+    /// <summary>
     /// Convert the series of type List to a series of type Struct.
     /// </summary>
     /// <inheritdoc cref="ArrayOps.ToStruct(string[])"/>

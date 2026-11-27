@@ -396,6 +396,14 @@ unsafe internal partial class NativeBindings
         [MarshalAs(UnmanagedType.LPUTF8Str)] string sep,
         [MarshalAs(UnmanagedType.U1)]bool ignoreNulls);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_list_len(ExprHandle expr);
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_list_to_map(ExprHandle expr);
+    // --- Map namespace ---
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_map_entries(ExprHandle expr);
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_map_keys(ExprHandle expr);
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_map_values(ExprHandle expr);
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_map_len(ExprHandle expr);
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_map_contains_key(ExprHandle expr, ExprHandle key);
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_map_get(ExprHandle expr, ExprHandle key);
     // List Aggs
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_list_sum(ExprHandle expr);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_list_min(ExprHandle expr);

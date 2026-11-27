@@ -18,6 +18,9 @@ module ExprNamespaces =
         /// <summary> Access struct operations. </summary>
         member this.Struct = StructOps(this.CloneHandle())
 
+        /// <summary> Access map operations (map[key, value] columns). </summary>
+        member this.MapOps = MapOps(this.CloneHandle())
+
         /// <summary> Access meta operations. </summary>
         member this.Meta = MetaOps(this.CloneHandle())
         /// <summary> Access binary operations. </summary>

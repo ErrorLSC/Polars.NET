@@ -105,6 +105,7 @@ public enum DataTypeKind : byte
     Float16 = 26,
     Enum = 27,
     Extension = 28,
+    Map = 29,
     Unknown = 0,
     SameAsInput = 0
 }
@@ -706,6 +707,7 @@ internal static class EnumExtensions
         DataTypeKind.String => CoreEnums.PlDataType.String,
         DataTypeKind.Enum => CoreEnums.PlDataType.Enum,
         DataTypeKind.Extension => CoreEnums.PlDataType.Extension,
+        DataTypeKind.Map => CoreEnums.PlDataType.Map,
         _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, null)
     };
     internal static CoreEnums.PlTimeUnit ToNative(this TimeUnit unit) => unit switch

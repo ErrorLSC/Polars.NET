@@ -1,0 +1,107 @@
+namespace Polars.FSharp.Tests
+
+open System.Collections.Generic
+open Xunit
+open Polars.FSharp
+
+type MapRow = { Id: int; Tags: Map<string, int64> }
+type OptionalMapRow = { Id: int; Tags: Map<string, int64> option }
+
+/// The Polars 2.2 Map type from F#: DataType.Map, F# Map values in and out, map literals, selectors.
+type MapTypeTests() =
+
+    [<Fact>]
+    member _.``Map type has its kind, parts and display`` () =
+        use map = DataType.Map(DataType.String, DataType.Int64)
+
+        match map.Kind with
+        | DataTypeKind.Map(key, value) ->
+            Assert.Equal(DataType.String, key)
+            Assert.Equal(DataType.Int64, value)
+        | other -> failwithf "expected a Map kind, got %A" other
+
+        Assert.Equal("map[str, i64]", map.ToString())
+        Assert.Equal(Some DataType.String, map.MapKeyType)
+        Assert.Equal(Some DataType.Int64, map.MapValueType)
+        Assert.True map.IsNested
+        Assert.Equal(29, map.Code)
+        Assert.Equal(None, DataType.Int64.MapKeyType)
+        Assert.Equal("map[str, map[i32, f64]]", (pl.map DataType.String (pl.map DataType.Int32 DataType.Float64)).ToString())
+
+    [<Fact>]
+    member _.``F# Map values make a Map series and read back`` () =
+        use s = Series.create ("m", [ Map [ "a", 1L; "b", 2L ]; Map.empty ])
+
+        Assert.Equal(DataType.Map(DataType.String, DataType.Int64), s.DataType)
+        Assert.Equal<Map<string, int64>>(Map [ "a", 1L; "b", 2L ], s.GetValue<Map<string, int64>> 0)
+        Assert.Equal<Map<string, int64>>(Map.empty, s.GetValue<Map<string, int64>> 1)
+        Assert.Equal(2, s.GetValue<Dictionary<string, int64>>(0).Count)
+        Assert.Equal<Map<string, int64>[]>([| Map [ "a", 1L; "b", 2L ]; Map.empty |], s.ToArray<Map<string, int64>>())
+
+    [<Fact>]
+    member _.``Records with Map members round-trip`` () =
+        let rows: MapRow list = [ { Id = 1; Tags = Map [ "x", 10L ] }; { Id = 2; Tags = Map.empty } ]
+        use df = DataFrame.ofRecords rows
+
+        Assert.Equal(DataType.Map(DataType.String, DataType.Int64), df.["Tags"].DataType)
+        Assert.Equal<MapRow list>(rows, df.ToRecordList<MapRow>())
+
+        let optional: OptionalMapRow list = [ { Id = 1; Tags = Some(Map [ "y", 3L ]) }; { Id = 2; Tags = None } ]
+        use dfOpt = DataFrame.ofRecords optional
+        Assert.Equal(1L, dfOpt.["Tags"].NullCount)
+        Assert.Equal<OptionalMapRow list>(optional, dfOpt.ToRecordList<OptionalMapRow>())
+
+    [<Fact>]
+    member _.``A map literal is one map value`` () =
+        use df = DataFrame.create [ Series.create ("id", [| 1; 2 |]) ]
+        use res = df |> DataFrame.select [ pl.col "id"; (pl.litMap (Map [ "k", 5L ])).Alias "m" ]
+
+        Assert.Equal(DataType.Map(DataType.String, DataType.Int64), res.["m"].DataType)
+        Assert.Equal<Map<string, int64>[]>([| Map [ "k", 5L ]; Map [ "k", 5L ] |], res.["m"].ToArray<Map<string, int64>>())
+
+    [<Fact>]
+    member _.``The map selector picks Map columns`` () =
+        use df =
+            DataFrame.create
+                [ Series.create ("id", [| 1 |])
+                  Series.create ("m", [ Map [ 1, "one" ] ])
+                  Series.create ("l", [ [| 1 |] ]) ]
+
+        use picked = df |> DataFrame.select [ pl.cs.map().ToExpr() ]
+        Assert.Equal<string seq>([ "m" ], picked.Columns)
+        Assert.Equal(DataType.Map(DataType.Int32, DataType.String), picked.["m"].DataType)
+
+    [<Fact>]
+    member _.``MapOps look up, count and list entries`` () =
+        use df =
+            DataFrame.create
+                [ Series.create ("m", [ Map [ "a", 1L; "b", 2L ]; Map.empty; Map [ "c", 3L ] ])
+                  Series.create ("k", [| "b"; "a"; "x" |]) ]
+
+        use res =
+            df
+            |> DataFrame.select
+                [ (pl.col "m").MapOps.Get("a").Alias "a"
+                  (pl.col "m").MapOps.Get(pl.col "k").Alias "byColumn"
+                  (pl.col "m").MapOps.ContainsKey("c").Alias "hasC"
+                  (pl.col "m").MapOps.Len().Alias "len"
+                  (pl.col "m").MapOps.Keys().Alias "keys" ]
+
+        Assert.Equal<int64 option[]>([| Some 1L; None; None |], res.["a"].ToArrayOption<int64>())
+        Assert.Equal<int64 option[]>([| Some 2L; None; None |], res.["byColumn"].ToArrayOption<int64>())
+        Assert.Equal<bool[]>([| false; false; true |], res.["hasC"].ToArray<bool>())
+        Assert.Equal<uint32[]>([| 2u; 0u; 1u |], res.["len"].ToArray<uint32>())
+        Assert.Equal<string[]>([| "a"; "b" |], res.["keys"].GetValue<string[]> 0)
+
+        // The series namespace, and List.ToMap back from the entries.
+        use s = df.["m"]
+        Assert.Equal<int64 option[]>([| None; None; Some 3L |], s.MapOps.Get("c").ToArrayOption<int64>())
+        use back = s.MapOps.Entries().List.ToMap()
+        Assert.Equal(DataType.Map(DataType.String, DataType.Int64), back.DataType)
+        Assert.Equal<Map<string, int64>[]>(s.ToArray<Map<string, int64>>(), back.ToArray<Map<string, int64>>())
+
+    [<Fact>]
+    member _.``MapOps take integer keys`` () =
+        use s = Series.create ("m", [ Map [ 1, "one"; 2, "two" ] ])
+        Assert.Equal("two", s.MapOps.Get(2).GetValue<string> 0)
+        Assert.True(s.MapOps.ContainsKey(1).GetValue<bool> 0)

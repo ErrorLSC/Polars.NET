@@ -84,7 +84,8 @@ define_pl_datatype_kind! {
             let storage = DataType::Null;
             let ext_inst = get_extension_type_or_generic("", &storage, None);
             DataType::Extension(ext_inst, Box::new(storage))
-        }
+        },
+        Map = 29 <=> DataType::Map(_, _) => DataType::Map(Box::new(DataType::String), Box::new(DataType::Null))
     }
 }
 // --- Constructors ---
@@ -204,6 +205,24 @@ pub extern "C" fn pl_datatype_new_list(inner_ptr: *mut DataTypeContext) -> *mut 
         Ok(Box::into_raw(Box::new(DataTypeContext {
             dtype: list_dtype,
         })))
+    })
+}
+
+/// `map[key, value]`, validated as Polars validates map dtypes (the key is not Null; no objects).
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_datatype_new_map(
+    key_ptr: *mut DataTypeContext,
+    value_ptr: *mut DataTypeContext,
+) -> *mut DataTypeContext {
+    ffi_try!({
+        if key_ptr.is_null() || value_ptr.is_null() {
+            polars_bail!(ComputeError: "Key or value DataTypeContext pointer is null for Map creation");
+        }
+        let key = unsafe { &*key_ptr }.dtype.clone();
+        let value = unsafe { &*value_ptr }.dtype.clone();
+        let dtype = DataType::Map(Box::new(key), Box::new(value));
+        dtype.ensure_valid_map_dtype()?;
+        Ok(Box::into_raw(Box::new(DataTypeContext { dtype })))
     })
 }
 
@@ -332,6 +351,10 @@ fn dtype_to_string_verbose(dt: &DataType) -> String {
 
         DataType::Array(inner, width) => {
             format!("array[{}; {}]", dtype_to_string_verbose(inner), width)
+        }
+
+        DataType::Map(key, value) => {
+            format!("map[{}, {}]", dtype_to_string_verbose(key), dtype_to_string_verbose(value))
         }
 
         _ => dt.to_string(),
@@ -470,6 +493,20 @@ pub extern "C" fn pl_datatype_get_inner(ptr: *mut DataType) -> *mut DataType {
             DataType::List(inner) | DataType::Array(inner, _) => {
                 Ok(Box::into_raw(Box::new(*inner.clone())))
             }
+            _ => Ok(std::ptr::null_mut()),
+        }
+    })
+}
+
+/// The key (`value == false`) or value (`value == true`) dtype of a Map; null for any other dtype.
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_datatype_get_map_part(ptr: *mut DataType, value: bool) -> *mut DataType {
+    ffi_try!({
+        if ptr.is_null() {
+            polars_bail!(ComputeError: "DataType pointer is null");
+        }
+        match unsafe { &*ptr } {
+            DataType::Map(k, v) => Ok(Box::into_raw(Box::new(if value { *v.clone() } else { *k.clone() }))),
             _ => Ok(std::ptr::null_mut()),
         }
     })

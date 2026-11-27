@@ -1132,6 +1132,11 @@ public partial class Expr : IDisposable, IEquatable<Expr>
     public StructOps Struct => new(this);
 
     /// <summary>
+    /// Access map operations (<c>map[key, value]</c> columns).
+    /// </summary>
+    public MapOps MapOps => new(this);
+
+    /// <summary>
     /// Access column renaming operations.
     /// </summary>
     public NameOps Name => new(this);

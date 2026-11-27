@@ -31,7 +31,8 @@ public enum PlDataType : int
     UInt128 =25,
     Float16=26,
     Enum = 27,
-    Extension= 28
+    Extension= 28,
+    Map = 29
 }
 
 public enum PlJoinType : byte

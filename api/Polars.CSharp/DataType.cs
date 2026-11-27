@@ -291,6 +291,23 @@ public class DataType : IDisposable, IEquatable<DataType>, IPolarsDataType
     }
 
     /// <summary>
+    /// The key type of a Map type (<c>map[key, value]</c>); null for any other type.
+    /// </summary>
+    public DataType? MapKeyType => MapPart(PolarsWrapper.GetMapKeyType);
+
+    /// <summary>
+    /// The value type of a Map type (<c>map[key, value]</c>); null for any other type.
+    /// </summary>
+    public DataType? MapValueType => MapPart(PolarsWrapper.GetMapValueType);
+
+    private DataType? MapPart(Func<DataTypeHandle, DataTypeHandle> part)
+    {
+        if (Kind != DataTypeKind.Map) return null;
+        var handle = part(Handle);
+        return handle.IsInvalid ? null : new DataType(handle);
+    }
+
+    /// <summary>
     /// Gets the fields of a Struct type.
     /// Returns null if this DataType is not a Struct.
     /// </summary>
@@ -382,7 +399,7 @@ public class DataType : IDisposable, IEquatable<DataType>, IPolarsDataType
     };
     public bool IsNested => Kind switch
     {
-        DataTypeKind.List or DataTypeKind.Array or DataTypeKind.Struct => true,
+        DataTypeKind.List or DataTypeKind.Array or DataTypeKind.Struct or DataTypeKind.Map => true,
         _ => false
     };
     public bool IsTemporal => Kind switch
@@ -531,6 +548,15 @@ public class DataType : IDisposable, IEquatable<DataType>, IPolarsDataType
     public static DataType List(DataType innerType)
         => new(PolarsWrapper.NewListType(innerType.Handle), DataTypeKind.List);
     /// <summary>
+    /// Creates a Map type: each value is a collection of key-value entries, shown as <c>map[key, value]</c>.
+    /// The key type must not be <see cref="Null"/>.
+    /// <para>Example: <c>DataType.Map(DataType.String, DataType.Int64)</c> is <c>map[str, i64]</c>.</para>
+    /// </summary>
+    /// <param name="keyType">The data type of the keys.</param>
+    /// <param name="valueType">The data type of the values.</param>
+    public static DataType Map(DataType keyType, DataType valueType)
+        => new(PolarsWrapper.NewMapType(keyType.Handle, valueType.Handle), DataTypeKind.Map);
+    /// <summary>
     /// Create a Fixed-Size List (Array) data type.
     /// <para>Example: DataType.Array(DataType.Int32, 3),DataType.Array(typeof(int), 3) </para>
     /// </summary>
@@ -550,14 +576,9 @@ public class DataType : IDisposable, IEquatable<DataType>, IPolarsDataType
     /// <param name="fields">Definition of a single field within a Struct DataType.</param>
     public static DataType Struct(IEnumerable<Field> fields)
     {
-        var names = new List<string>();
-        var handles = new List<DataTypeHandle>();
-        foreach (var f in fields)
-        {
-            names.Add(f.Name);
-            handles.Add(f.DataType.Handle);
-        }
-        var h = PolarsWrapper.NewStructType([.. names], [.. handles]);
+        // The native struct takes over the handles it is given: give it copies, so the fields' types stay usable.
+        Field[] all = [.. fields];
+        var h = PolarsWrapper.NewStructType([.. all.Select(static f => f.Name)], [.. all.Select(static f => PolarsWrapper.CloneHandle(f.DataType.Handle))]);
         return new DataType(h, DataTypeKind.Struct);
     }
     /// <inheritdoc cref="Struct(IEnumerable{Field})"/>
@@ -569,9 +590,8 @@ public class DataType : IDisposable, IEquatable<DataType>, IPolarsDataType
     /// <inheritdoc cref="Struct(IEnumerable{Field})"/>
     public static DataType Struct(string[] names, DataType[] types)
     {
-        var handles = System.Array.ConvertAll(types, t => t.Handle);
-
-        var h = PolarsWrapper.NewStructType(names, handles);
+        // Copies, as above: the fields' types stay usable.
+        var h = PolarsWrapper.NewStructType(names, [.. types.Select(static t => PolarsWrapper.CloneHandle(t.Handle))]);
 
         return new DataType(h, DataTypeKind.Struct);
     }
@@ -683,12 +703,7 @@ public class DataType : IDisposable, IEquatable<DataType>, IPolarsDataType
 
             DictionaryType dict => Categorical(Categories.Random()),
 
-            MapType map => List(
-                Struct(
-                    ("key", FromArrowType(map.KeyField.DataType)),
-                    ("value", FromArrowType(map.ValueField.DataType))
-                )
-            ),
+            MapType map => Map(FromArrowType(map.KeyField.DataType), FromArrowType(map.ValueField.DataType)),
 
             _ => throw new NotSupportedException($"ArrowType {arrowType.GetType().Name} is not supported yet.")
         };

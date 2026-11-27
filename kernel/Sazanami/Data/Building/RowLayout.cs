@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Collections.Frozen;
 using System.Diagnostics.CodeAnalysis;
+using System.Diagnostics;
 using System.Linq.Expressions;
 using System.Reflection;
 using System.Runtime.CompilerServices;
@@ -22,7 +23,7 @@ internal sealed class RowNode(IArrowType type, bool nullable, Dictionary<string,
     /// <summary>The nodes inside: a struct's members, a list's item.</summary>
     public RowNode[] Children { get; } = children ?? [];
 
-    /// <summary>Whether this list holds a dictionary's entries (a list of Key / Value structs).</summary>
+    /// <summary>Whether this is a dictionary: an Arrow map, whose one child is the entry (key, value).</summary>
     public bool IsMap { get; } = isMap;
 
     /// <summary>Whether this is a <see cref="Guid"/> (its 16 bytes, as <see cref="Guid.TryWriteBytes(Span{byte})"/> writes them).</summary>
@@ -119,13 +120,16 @@ internal static class RowLayout
 
         if (Grouping(type) is null && ElementType(type) is { } element)
         {
+            if (IsDictionary(type, element))
+                return MapNode(type, element.GetGenericArguments() is [var key, var value] ? (key, value) : throw new UnreachableException(), nullable);
+
             RowNode item = Resolve(element);
             Type writer = typeof(ListWriter<,>).MakeGenericType(type, element);
             // List items are nullable fields, whatever their type: the engine's list types carry the item's nullability,
             // and its own lists' items are always nullable.
             return new RowNode(new LargeListType(new Field("item", item.Type, true, item.Metadata)), nullable, null, writer,
                 b => (ArrowValueWriter)Activator.CreateInstance(writer, b, item.CreateWriter(((NativeLargeListBuilder)b).Values))!,
-                [item], IsDictionary(type, element));
+                [item]);
         }
 
         if (Members(type) is { } members)
@@ -156,6 +160,25 @@ internal static class RowLayout
         // Nothing to lay out: the value's text.
         Type text = typeof(ToStringWriter<>).MakeGenericType(type);
         return new RowNode(StringViewType.Default, nullable, null, text, b => (ArrowValueWriter)Activator.CreateInstance(text, b)!);
+    }
+
+    /// <summary>
+    /// A dictionary as an Arrow map (the engine's Map type): entries <c>{ key (not null), value }</c>, keys as the
+    /// dictionary enumerates them. The entry node is a struct node of the key and value nodes.
+    /// </summary>
+    private static RowNode MapNode([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] Type type, (Type Key, Type Value) entry, bool nullable)
+    {
+        RowNode key = Resolve(entry.Key);
+        RowNode value = Resolve(entry.Value);
+        var entryType = new StructType([new Field("key", key.Type, false, key.Metadata), new Field("value", value.Type, true, value.Metadata)]);
+        var mapType = new MapType(new Field("entries", entryType, false), keySorted: false);
+        Type writer = typeof(MapWriter<,,>).MakeGenericType(type, entry.Key, entry.Value);
+        RowNode entries = new(entryType, false, null, typeof(void), static _ => throw new UnreachableException(), [key, value]);
+        return new RowNode(mapType, nullable, null, writer, b =>
+        {
+            var pairs = (NativeStructBuilder)((NativeListBuilder)b).Values;
+            return (ArrowValueWriter)Activator.CreateInstance(writer, b, key.CreateWriter(pairs.Children[0]), value.CreateWriter(pairs.Children[1]))!;
+        }, [entries], isMap: true);
     }
 
     /// <summary>

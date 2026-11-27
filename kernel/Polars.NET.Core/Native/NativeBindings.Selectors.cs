@@ -58,6 +58,7 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)] public static partial SelectorHandle pl_selector_categorical();
     [LibraryImport(LibName)] public static partial SelectorHandle pl_selector_nested();
     [LibraryImport(LibName)] public static partial SelectorHandle pl_selector_struct();
+    [LibraryImport(LibName)] public static partial SelectorHandle pl_selector_map();
     [LibraryImport(LibName)] public static partial SelectorHandle pl_selector_temporal();
     [LibraryImport(LibName)] public static partial SelectorHandle pl_selector_list(IntPtr inner);
     [LibraryImport(LibName)] public static partial SelectorHandle pl_selector_array(IntPtr inner, nuint width);

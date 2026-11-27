@@ -100,6 +100,10 @@ public readonly partial struct Polars
         public static Selector Enum() => new(PolarsWrapper.SelectorEnum());
         public static Selector Nested() => new(PolarsWrapper.SelectorNested());
         public static Selector Struct() => new(PolarsWrapper.SelectorStruct());
+        /// <summary>
+        /// Select Map columns (<c>map[key, value]</c>), whatever their key and value types.
+        /// </summary>
+        public static Selector Map() => new(PolarsWrapper.SelectorMap());
         public static Selector Temporal() => new(PolarsWrapper.SelectorTemporal());
         /// <summary>
         /// Select list columns. Optionally filter by the inner data type.

@@ -6,7 +6,7 @@ use polars_arrow::array::StructArray;
 use polars_arrow::datatypes::{ArrowDataType, Field};
 use polars_core::prelude::CompatLevel;
 use crate::types::{DataFrameContext, LazyFrameContext};
-use crate::series::series::{contains_dictionary, series_from_arrow_with_metadata};
+use crate::series::series::{needs_conversion, series_from_arrow_with_metadata};
 
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_dataframe_from_arrow_record_batch(
@@ -139,7 +139,7 @@ unsafe fn read_stream_chunks(
 /// except dictionary data, which must become Categorical / Enum.
 fn stream_column(field: &Field, chunks: Vec<Box<dyn polars_arrow::array::Array>>, strict: bool) -> PolarsResult<Column> {
     let name = PlSmallStr::from_str(&field.name);
-    let series = if strict || contains_dictionary(&field.dtype) {
+    let series = if strict || needs_conversion(&field.dtype) {
         let mut safe_chunks = Vec::with_capacity(chunks.len());
         let mut safe_dtype = None;
         for arr in chunks {
@@ -364,12 +364,22 @@ pub(crate) struct SpooledIpc {
     restore: Vec<(PlSmallStr, DataType)>,
 }
 
-/// The dtype with every Categorical / Enum (also nested) replaced by String; None when it has none.
+/// The dtype with every Categorical / Enum (also nested) replaced by String, and a map holding one by its entries; None
+/// when it has none.
 fn without_categoricals(dtype: &DataType) -> Option<DataType> {
     match dtype {
         DataType::Categorical(..) | DataType::Enum(..) => Some(DataType::String),
         DataType::List(inner) => without_categoricals(inner).map(|d| DataType::List(Box::new(d))),
         DataType::Array(inner, width) => without_categoricals(inner).map(|d| DataType::Array(Box::new(d), *width)),
+        // As its entries (a list of key / value structs): Polars casts a map's values but never its keys, while the
+        // entries cast both ways, and back to the map when the scan restores it.
+        DataType::Map(key, value) => match (without_categoricals(key), without_categoricals(value)) {
+            (None, None) => None,
+            (k, v) => Some(DataType::List(Box::new(DataType::Struct(vec![
+                PolarsField::new("key".into(), k.unwrap_or_else(|| (**key).clone())),
+                PolarsField::new("value".into(), v.unwrap_or_else(|| (**value).clone())),
+            ])))),
+        },
         DataType::Struct(fields) => {
             let stripped: Vec<_> = fields.iter().map(|f| without_categoricals(f.dtype())).collect();
             stripped.iter().any(Option::is_some).then(|| {

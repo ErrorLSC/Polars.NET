@@ -353,6 +353,12 @@ type ListOps(handle: ExprHandle) =
         new Expr(PolarsWrapper.ListToArray(handle, width))
 
     /// <summary>
+    /// Convert a list of {key, value} structs (the field names must be key and value) into a Map. A key repeated within
+    /// a list keeps one entry: at its first position, with its last value. A null key is refused.
+    /// </summary>
+    member _.ToMap() = new Expr(PolarsWrapper.ListToMap handle)
+
+    /// <summary>
     /// Convert the list to a struct type with explicitly named fields.
     /// </summary>
     /// <param name="fields">A sequence of names for the struct fields.</param>

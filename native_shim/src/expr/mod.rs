@@ -10,4 +10,5 @@ pub mod string_ops;
 pub mod datetime_ops;
 pub mod binary_ops;
 pub mod cat_ops;
+pub mod map_ops;
 pub mod dotnet_convert;

@@ -237,6 +237,8 @@ public readonly struct ListOps
     public Expr Explode(bool emptyAsNull=true,bool keepNulls=true) => _expr.Explode(emptyAsNull,keepNulls);
     /// <inheritdoc cref="SeriesListOps.ToArray"/>
     public Expr ToArray(long width) => new(PolarsWrapper.ListToArray(_expr.CloneHandle(),width));
+    /// <inheritdoc cref="SeriesListOps.ToMap"/>
+    public Expr ToMap() => new(PolarsWrapper.ListToMap(_expr.CloneHandle()));
     /// <inheritdoc cref="SeriesListOps.ToStruct(string[])"/>
     public Expr ToStruct(params string[] fields) => new(PolarsWrapper.ListToStruct(_expr.CloneHandle(),fields));
     /// <inheritdoc cref="SeriesListOps.ToStruct(Func{int,string},int)"/>

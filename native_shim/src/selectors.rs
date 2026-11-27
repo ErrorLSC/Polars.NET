@@ -233,6 +233,7 @@ fn map_i32_to_dtype_selector(kind: i32) -> DataTypeSelector {
         26 => dt_selector_single(DataType::Float16),
         27 => DataTypeSelector::Enum,
         // 28: Extension has no DataTypeSelector counterpart
+        29 => DataTypeSelector::Map,
         // Empty
         _ => DataTypeSelector::Empty,
     }
@@ -278,6 +279,7 @@ impl_simple_dtype_selector! {
     
     pl_selector_nested => Nested,
     pl_selector_struct => Struct,
+    pl_selector_map => Map,
     
     pl_selector_temporal => Temporal,
     // pl_selector_object => Object,

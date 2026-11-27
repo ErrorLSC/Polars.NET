@@ -146,6 +146,14 @@ public static class ArrowReader
             return CreateDictionaryAccessor(dictArray, type);
         if (array is StructArray sa) return CreateStructAccessor(sa, type);
 
+        // Maps (and lists of key / value structs) read as dictionaries, as rows read them.
+        if (MapAccessorTypes.TryGetKeyValue(type, out _, out _) && MapAccessorTypes.Entries(array.Data.DataType) is not null)
+        {
+            ColumnAccessor map = ColumnAccessorFactory.Create(new Field("value", array.Data.DataType, true), type);
+            map.SetBatch(array);
+            return idx => map.IsNull(idx) ? null : map.GetValue(idx);
+        }
+
         if (array is ListArray || array is LargeListArray || array is FixedSizeListArray)
             return CreateListAccessor(array, type);
 

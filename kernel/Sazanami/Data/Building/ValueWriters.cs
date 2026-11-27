@@ -181,6 +181,44 @@ internal sealed class ListWriter<TCollection, TItem>(NativeColumnBuilder builder
     }
 }
 
+/// <summary>
+/// A dictionary as an Arrow map: each entry's key and value into the entry struct's two children, keys never null
+/// (the engine trusts maps it imports to have no null keys).
+/// </summary>
+internal sealed class MapWriter<TCollection, TKey, TValue>(NativeColumnBuilder builder, ArrowValueWriter<TKey> keys, ArrowValueWriter<TValue> values)
+    : ArrowValueWriter<TCollection>(builder) where TKey : notnull
+{
+    private readonly NativeListBuilder _maps = (NativeListBuilder)builder;
+    private readonly NativeStructBuilder _entries = (NativeStructBuilder)((NativeListBuilder)builder).Values;
+
+    public override void Write(TCollection value)
+    {
+        switch (value)
+        {
+            case null:
+                _maps.AppendNull();
+                return;
+            case Dictionary<TKey, TValue> dictionary:
+                foreach (KeyValuePair<TKey, TValue> entry in dictionary) Append(entry);
+                break;
+            default:
+                foreach (KeyValuePair<TKey, TValue> entry in (IEnumerable<KeyValuePair<TKey, TValue>>)value) Append(entry);
+                break;
+        }
+        _maps.EndList();
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private void Append(KeyValuePair<TKey, TValue> entry)
+    {
+        if (entry.Key is null)
+            throw new ArgumentException($"A {typeof(TCollection).Name} holds a null key; map keys cannot be null. Leave the entry out, or use a non-null key.");
+        keys.Write(entry.Key);
+        values.Write(entry.Value);
+        _entries.EndStruct();
+    }
+}
+
 internal sealed class StructWriter<TStruct>(NativeStructBuilder builder, ArrowValueWriter[] members, Action<TStruct, ArrowValueWriter[]> append)
     : ArrowValueWriter<TStruct>(builder)
 {

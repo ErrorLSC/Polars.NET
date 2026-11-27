@@ -13,6 +13,9 @@ public readonly partial struct PolarsWrapper
     public static DataTypeHandle NewCategoricalType(CategoriesHandle categories) => ErrorHelper.Check(NativeBindings.pl_datatype_new_categorical(categories));
     public static DataTypeHandle NewListType(DataTypeHandle innerType)
        => ErrorHelper.Check(NativeBindings.pl_datatype_new_list(innerType));
+    /// <summary>A Map dtype; the native side refuses a key dtype Polars cannot use as a map key (Null).</summary>
+    public static DataTypeHandle NewMapType(DataTypeHandle key, DataTypeHandle value)
+       => ErrorHelper.Check(NativeBindings.pl_datatype_new_map(key, value));
     public static DataTypeHandle NewDateTimeType(byte unit, string? timezone)
         => ErrorHelper.Check(NativeBindings.pl_datatype_new_datetime(unit,timezone));
     public static DataTypeHandle NewDurationType(byte unit)
@@ -107,6 +110,12 @@ public readonly partial struct PolarsWrapper
     /// </summary>
     public static DataTypeHandle GetInnerType(DataTypeHandle handle)
         => ErrorHelper.Check(NativeBindings.pl_datatype_get_inner(handle));
+    /// <summary>The key dtype of a Map; an invalid handle for any other dtype.</summary>
+    public static DataTypeHandle GetMapKeyType(DataTypeHandle handle)
+        => NativeBindings.pl_datatype_get_map_part(handle, false);
+    /// <summary>The value dtype of a Map; an invalid handle for any other dtype.</summary>
+    public static DataTypeHandle GetMapValueType(DataTypeHandle handle)
+        => NativeBindings.pl_datatype_get_map_part(handle, true);
     public static ulong DataTypeGetArrayWidth(DataTypeHandle dtype)
     {
         bool success = NativeBindings.pl_datatype_get_array_width(dtype, out uint width);

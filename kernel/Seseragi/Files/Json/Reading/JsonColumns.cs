@@ -121,11 +121,11 @@ internal abstract class JsonColumn(NativeColumnBuilder builder, string path, boo
     /// <summary>The metadata key of a binary column of 16-byte GUIDs (as .NET lays them out) written and read as GUID strings.</summary>
     public const string GuidKey = "kaminari.json.guid";
 
+    /// <summary>The metadata key of a map column written as an array of <c>{"Key": …, "Value": …}</c> objects (keys that are not strings).</summary>
+    public const string EntriesKey = "kaminari.json.entries";
+
     /// <summary>The metadata key of a string column of an enum's member names, the members as <see cref="EnumNameColumn.Members"/> lists them.</summary>
     public const string EnumKey = "kaminari.json.enum";
-
-    /// <summary>The metadata key of a large list of key / value structs (string keys) written as JSON objects.</summary>
-    public const string ObjectKey = "kaminari.json.object";
 
     private static JsonColumn Of(Field field, NativeColumnBuilder builder, string path, bool ignoreErrors, bool strict, bool keysIgnoreCase) => field.DataType switch
     {

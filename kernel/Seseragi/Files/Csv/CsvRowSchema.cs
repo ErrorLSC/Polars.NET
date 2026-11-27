@@ -44,7 +44,6 @@ internal static class CsvRowSchema
         {
             Decimal32Type or Decimal64Type or Decimal128Type or Decimal256Type => null, // Arrow's decimals are fixed-size binaries
             BinaryType or LargeBinaryType or BinaryViewType or FixedSizeBinaryType => "bytes",
-            ListType or LargeListType or FixedSizeListType when node.IsMap => "a dictionary",
             ListType or LargeListType or FixedSizeListType => "a collection",
             MapType => "a dictionary",
             StructType => "a record",

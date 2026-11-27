@@ -280,6 +280,7 @@ public partial class Series : IDisposable
                 DataTypeKind.List => GetValue<object>(index),
                 DataTypeKind.Struct => GetValue<object>(index),
                 DataTypeKind.Array => GetValue<object>(index),
+                DataTypeKind.Map => GetValue<object>(index),
 
                 _ => throw new NotSupportedException($"Indexer not supported for type {DataType.Kind}")
             };

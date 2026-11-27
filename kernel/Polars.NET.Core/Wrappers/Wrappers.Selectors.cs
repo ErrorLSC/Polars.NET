@@ -65,6 +65,7 @@ public readonly partial struct PolarsWrapper
     public static SelectorHandle SelectorEnum() => ErrorHelper.Check(NativeBindings.pl_selector_enum_type());
     public static SelectorHandle SelectorNested() => ErrorHelper.Check(NativeBindings.pl_selector_nested());
     public static SelectorHandle SelectorStruct() => ErrorHelper.Check(NativeBindings.pl_selector_struct());
+    public static SelectorHandle SelectorMap() => ErrorHelper.Check(NativeBindings.pl_selector_map());
     public static SelectorHandle SelectorTemporal() => ErrorHelper.Check(NativeBindings.pl_selector_temporal());
     public static SelectorHandle SelectorList(SelectorHandle? selector)
     {

@@ -1356,5 +1356,19 @@ public class DataTypeTests
         using var df = DataFrame.FromSeries(Series.From("E", ["hi"]).Cast(DataType.Enum(["lo", "mid", "hi"])));
         Assert.Equal(["lo", "mid", "hi"], ((IPolarsDataFrame)df).Schema["E"].GetEnumCategories());
     }
-}
 
+    [Fact]
+    [Trait("DataType", "Struct")]
+    public void Struct_Leaves_Its_Field_Types_Usable()
+    {
+        using var inner = DataType.List(DataType.Int64);
+        using var first = DataType.Struct(("a", inner), ("b", DataType.String));
+        using var second = DataType.Struct(["c"], [inner]);
+
+        // The fields' types were copied, not taken over: still usable, again and again.
+        Assert.Equal("list[i64]", inner.ToString());
+        Assert.Equal("struct[a: list[i64], b: str]", first.ToString());
+        Assert.Equal("struct[c: list[i64]]", second.ToString());
+        Assert.Equal(DataType.Struct(("a", inner), ("b", DataType.String)), first);
+    }
+}

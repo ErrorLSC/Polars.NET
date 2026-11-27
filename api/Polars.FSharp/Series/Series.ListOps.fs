@@ -159,6 +159,9 @@ type SeriesListNameSpace(parent: Series) =
     /// <summary> Convert list to struct. </summary>
     member _.ToStruct(fields: seq<string>) = apply (fun e -> e.List.ToStruct fields)
 
+    /// <summary> Convert a list of {key, value} structs into a Map (a key repeated: its first position, its last value). </summary>
+    member _.ToMap() = apply (fun e -> e.List.ToMap())
+
     /// <summary> Convert list to struct. </summary>
     member _.ToStruct(nameGenerator: int -> string, fieldCount: int) =
         apply (fun e -> e.List.ToStruct(nameGenerator, fieldCount))

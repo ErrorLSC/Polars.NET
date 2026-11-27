@@ -203,12 +203,10 @@ public static class ArrowTypeResolver
             FixedSizeListType fixedSizeList => GetNetTypeFromArrowType(fixedSizeList.ValueDataType).MakeArrayType(),
             DictionaryType dict => GetNetTypeFromArrowType(dict.ValueType),
 
-            // Map types are logical lists of struct entries (key-value pairs).
-            MapType map => typeof(KeyValuePair<,>)
-                            .MakeGenericType(
+            // A map is read as a dictionary (a key repeated in a map keeps its first value).
+            MapType map => typeof(Dictionary<,>).MakeGenericType(
                                 GetNetTypeFromArrowType(map.KeyField.DataType),
-                                GetNetTypeFromArrowType(map.ValueField.DataType))
-                            .MakeArrayType(),
+                                GetNetTypeFromArrowType(map.ValueField.DataType)),
 
             // Structs have heterogeneous fields. Without runtime code generation,
             // mapping to an array of objects or a dynamic expando is the safest fallback.

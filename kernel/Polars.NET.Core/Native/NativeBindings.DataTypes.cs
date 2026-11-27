@@ -22,6 +22,8 @@ unsafe internal partial class NativeBindings
     public static partial DataTypeHandle pl_datatype_new_categorical(CategoriesHandle categories);
     [LibraryImport(LibName)]
     public static partial DataTypeHandle pl_datatype_new_list(DataTypeHandle inner);
+    [LibraryImport(LibName)]
+    public static partial DataTypeHandle pl_datatype_new_map(DataTypeHandle key, DataTypeHandle value);
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial DataTypeHandle pl_datatype_new_datetime(byte unit, string? timezone);
     [LibraryImport(LibName)]
@@ -79,6 +81,8 @@ unsafe internal partial class NativeBindings
     public static partial IntPtr pl_datatype_get_timezone(DataTypeHandle handle);
     [LibraryImport(LibName)]
     public static partial DataTypeHandle pl_datatype_get_inner(DataTypeHandle handle);
+    [LibraryImport(LibName)]
+    public static partial DataTypeHandle pl_datatype_get_map_part(DataTypeHandle handle, [MarshalAs(UnmanagedType.U1)] bool value);
 
     [LibraryImport(LibName)]
     [return: MarshalAs(UnmanagedType.U1)]

@@ -98,6 +98,17 @@ public readonly partial struct Polars
         ExprHandle eHandle = PolarsWrapper.Lit(sHandle);
         return new Expr(eHandle);
     }
+    /// <summary>
+    /// A Map literal: one <c>map[key, value]</c> value holding the dictionary's entries (in the order it enumerates them).
+    /// <para>Example: <c>Pl.Lit(new Dictionary&lt;string, long&gt; { ["a"] = 1 })</c> is <c>{"a": 1}</c> as <c>map[str, i64]</c>.</para>
+    /// </summary>
+    public static Expr Lit<TKey, TValue>(IReadOnlyDictionary<TKey, TValue> value) where TKey : notnull
+    {
+        ArgumentNullException.ThrowIfNull(value);
+        using var s = CSharp.Series.From("literal", (IReadOnlyDictionary<TKey, TValue>[])[value]);
+        return Lit(s).First();
+    }
+
     // =========================================================================
     // The "Magic" Lit
     // =========================================================================

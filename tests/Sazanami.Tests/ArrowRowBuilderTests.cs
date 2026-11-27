@@ -1,5 +1,6 @@
 using Apache.Arrow;
 using Apache.Arrow.Types;
+using Kaminari.Sazanami.Arrow.TypeSystem;
 using Kaminari.Sazanami.Data.Building;
 using Kaminari.Sazanami.Data.Mapping;
 using Kaminari.Sazanami.Marshalling;
@@ -94,21 +95,26 @@ public sealed class ArrowRowBuilderTests
     }
 
     [Fact]
-    public void Dictionaries_AreListsOfKeyValueStructs()
+    public void Dictionaries_AreArrowMaps()
     {
         using var builder = new ArrowRowBuilder<Holder>();
         builder.Append(new Holder(new Dictionary<string, int> { ["a"] = 1, ["b"] = 2 }));
         builder.Append(new Holder(null));
         builder.Append(new Holder([]));
         using RecordBatch batch = builder.ExportBatch();
-        var lists = Assert.IsType<LargeListArray>(batch.Column(0));
-        var entries = (StructArray)lists.Values;
-        Assert.Equal(["Key", "Value"], ((StructType)entries.Data.DataType).Fields.Select(f => f.Name));
-        Assert.Equal([0L, 2L, 2L, 2L], lists.ValueOffsets.ToArray());
-        Assert.True(lists.IsNull(1));
-        var keys = (StringViewArray)entries.Fields[0];
+        var maps = Assert.IsType<MapArray>(batch.Column(0));
+        var type = (MapType)maps.Data.DataType;
+        Assert.Equal(["key", "value"], type.KeyValueType.Fields.Select(f => f.Name));
+        Assert.False(type.KeyField.IsNullable); // map keys are never null
+        Assert.True(type.ValueField.IsNullable);
+        Assert.False(type.KeySorted);
+        Assert.Equal([0, 2, 2, 2], maps.ValueOffsets.ToArray());
+        Assert.True(maps.IsNull(1));
+        var keys = (StringViewArray)maps.Keys;
         Assert.Equal(["a", "b"], [keys.GetString(0), keys.GetString(1)]);
-        Assert.Equal([1, 2], ((Int32Array)entries.Fields[1]).Values.ToArray());
+        Assert.Equal([1, 2], ((Int32Array)maps.Values).Values.ToArray());
+        // The layout's own type is the one the type resolver gives a dictionary.
+        Assert.True(ArrowTypes.SameType(ArrowTypeResolver.GetArrowTypeFromNetType(typeof(Dictionary<string, int>)), type));
     }
 
     [Fact]
@@ -148,7 +154,7 @@ public sealed class ArrowRowBuilderTests
         using RecordBatch batch = builder.ExportBatch();
         using ArrowBatchCursor<AsDictionaries> cursor = ArrowRowMapper<AsDictionaries>.CreateCursor(batch);
         AsDictionaries read = cursor.ReadRow(0);
-        Assert.Equal(new Dictionary<string, int> { ["a"] = 3, ["b"] = 2 }, read.Lower); // by name (key / value), the last a wins
+        Assert.Equal(new Dictionary<string, int> { ["a"] = 1, ["b"] = 2 }, read.Lower); // by name (key / value), the first a wins
         Assert.Equal(new Dictionary<int, string> { [5] = "five" }, read.Positional);   // by position
     }
 

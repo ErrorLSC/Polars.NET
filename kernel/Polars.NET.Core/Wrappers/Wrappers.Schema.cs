@@ -161,6 +161,8 @@ public readonly partial struct PolarsWrapper
                 [.. str.Fields.Select(f => f.Name)],
                 [.. str.Fields.Select(f => MapArrowToDataTypeHandle(f.DataType))]),
 
+            MapType map => NewMapType(MapArrowToDataTypeHandle(map.KeyField.DataType), MapArrowToDataTypeHandle(map.ValueField.DataType)),
+
             NullType => NewPrimitiveType((int)PlDataType.Null),
             _ => NewPrimitiveType((int)PlDataType.Unknown)
         };

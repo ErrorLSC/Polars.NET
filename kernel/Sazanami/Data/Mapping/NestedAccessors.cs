@@ -548,7 +548,8 @@ internal static class MapAccessorTypes
 /// <summary>
 /// A map column (an Arrow map, or a list of key/value structs) as dictionaries: the key and value fields found by
 /// name (<c>key</c> / <c>value</c>, ignoring case), else by position. A null key is refused (a .NET dictionary has
-/// none); a key repeated keeps its last value.
+/// none), and so are nested keys (lists, structs, maps: no value equality for a dictionary to hash); a key repeated
+/// keeps its first value, as a map lookup finds it.
 /// </summary>
 internal sealed class MapAccessor<TKey, TValue> : TypedColumnAccessor<Dictionary<TKey, TValue>>,
     ITypedAccessor<Dictionary<TKey, TValue>>,
@@ -578,6 +579,10 @@ internal sealed class MapAccessor<TKey, TValue> : TypedColumnAccessor<Dictionary
         _keyField = Find(entries.Fields, "key", 0);
         _valueField = Find(entries.Fields, "value", 1);
         if (_keyField == _valueField) (_keyField, _valueField) = (0, 1);
+        if (entries.Fields[_keyField].DataType is NestedType keyType)
+            throw new NotSupportedException(
+                $"A map keyed by {ArrowTypes.Describe(keyType)} cannot be read as a .NET dictionary: nested keys have no value equality to look them up by. "
+                + "Read the map's entries as a list of key / value records instead (e.g. List<(K Key, V Value)>, or the map's Entries()).");
         _keys = ColumnAccessorFactory.Create(entries.Fields[_keyField], typeof(TKey), foldNulls);
         _values = ColumnAccessorFactory.Create(entries.Fields[_valueField], typeof(TValue), foldNulls);
         _typedKeys = _keys as ITypedAccessor<TKey>;
@@ -615,9 +620,20 @@ internal sealed class MapAccessor<TKey, TValue> : TypedColumnAccessor<Dictionary
         {
             if (_keys.IsNull(i)) throw new InvalidDataException($"Map entry {i - start} of row {index} has a null key, which a dictionary cannot hold.");
             TKey key = _typedKeys is not null ? _typedKeys.GetTypedValue(i) : (TKey)_keys.GetValue(i)!;
-            result[key] = _values.IsNull(i) ? default! : _typedValues is not null ? _typedValues.GetTypedValue(i) : (TValue)_values.GetValue(i)!;
+            ref TValue? slot = ref CollectionsMarshal.GetValueRefOrAddDefault(result, key, out bool repeated);
+            if (!repeated)
+                slot = _values.IsNull(i) ? default! : _typedValues is not null ? _typedValues.GetTypedValue(i) : (TValue)_values.GetValue(i)!;
         }
         return result;
+    }
+
+    /// <summary>The map at <paramref name="index"/> as <see cref="TargetType"/>: an F# Map for an F# Map, else a dictionary.</summary>
+    public override object GetValue(int index)
+    {
+        if (IsNull(index)) return DBNull.Value;
+        return TargetType.IsGenericType && TargetType.GetGenericTypeDefinition() == typeof(FSharpMap<,>)
+            ? ((ITypedAccessor<FSharpMap<TKey, TValue>>)this).GetTypedValue(index)
+            : GetTypedValue(index);
     }
 
     Dictionary<TKey, TValue> ITypedAccessor<Dictionary<TKey, TValue>>.GetTypedValue(int index) => GetTypedValue(index);

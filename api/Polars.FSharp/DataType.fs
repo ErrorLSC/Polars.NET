@@ -45,6 +45,8 @@ type DataTypeKind =
             Metadata: string option
         |}
     | Unknown
+    /// A map of key-value entries: Map(keyType, valueType), shown as map[key, value].
+    | Map of DataType * DataType
 
 /// <summary>
 /// Polars data types for casting and schema definitions.
@@ -203,6 +205,18 @@ and DataType(handle: DataTypeHandle, kind: DataTypeKind) =
     /// Thrown when the data type is neither an Array nor a List.
     /// </exception>
     member this.InnerType: DataType = lazyInnerType.Value
+
+    /// <summary>The key type of a Map type; None for any other type.</summary>
+    member this.MapKeyType: DataType option =
+        match kind with
+        | DataTypeKind.Map(keyType, _) -> Some keyType
+        | _ -> None
+
+    /// <summary>The value type of a Map type; None for any other type.</summary>
+    member this.MapValueType: DataType option =
+        match kind with
+        | DataTypeKind.Map(_, valueType) -> Some valueType
+        | _ -> None
 
     /// <summary>
     /// Recursively unwraps all outer Array and List layers to retrieve the leaf (primitive/base) DataType.
@@ -379,6 +393,11 @@ and DataType(handle: DataTypeHandle, kind: DataTypeKind) =
         | DataTypeKind.Extension ext ->
             PolarsWrapper.NewExtensionType(ext.Name, ext.Storage.CreateHandle(), Option.toObj ext.Metadata)
 
+        | DataTypeKind.Map(keyType, valueType) ->
+            use keyHandle = keyType.CreateHandle()
+            use valueHandle = valueType.CreateHandle()
+            PolarsWrapper.NewMapType(keyHandle, valueHandle)
+
         | DataTypeKind.Unknown -> PolarsWrapper.NewPrimitiveType 0
 
     static member Datetime(unit: TimeUnit, ?tz) =
@@ -420,6 +439,16 @@ and DataType(handle: DataTypeHandle, kind: DataTypeKind) =
             new DataType(handle, DataTypeKind.Struct fields)
         finally
             typeHandles |> Array.iter (fun h -> h.Dispose())
+
+    /// <summary>
+    /// A Map type: each value is a collection of key-value entries, shown as map[key, value].
+    /// The key type must not be Null.
+    /// </summary>
+    static member Map(keyType: DataType, valueType: DataType) =
+        use keyHandle = keyType.CreateHandle()
+        use valueHandle = valueType.CreateHandle()
+        let handle = PolarsWrapper.NewMapType(keyHandle, valueHandle)
+        new DataType(handle, DataTypeKind.Map(keyType, valueType))
 
     static member Array(inner: DataType, shape: uint[]) =
         if shape.Length = 0 then
@@ -540,6 +569,11 @@ and DataType(handle: DataTypeHandle, kind: DataTypeKind) =
             let innerType = DataType.FromHandle innerHandle
             DataType.Array(innerType, shape)
 
+        | PlDataType.Map ->
+            use keyHandle = PolarsWrapper.GetMapKeyType handle
+            use valueHandle = PolarsWrapper.GetMapValueType handle
+            DataType.Map(DataType.FromHandle keyHandle, DataType.FromHandle valueHandle)
+
         | PlDataType.Extension ->
             let name = PolarsWrapper.DataTypeGetExtensionName handle
             use storageHandle = PolarsWrapper.GetInnerType handle
@@ -611,7 +645,8 @@ and DataType(handle: DataTypeHandle, kind: DataTypeKind) =
         match this.Kind with
         | DataTypeKind.List _
         | DataTypeKind.Array _
-        | DataTypeKind.Struct _ -> true
+        | DataTypeKind.Struct _
+        | DataTypeKind.Map _ -> true
         | _ -> false
 
     member this.IsTemporal =
@@ -682,6 +717,7 @@ and DataType(handle: DataTypeHandle, kind: DataTypeKind) =
         | DataTypeKind.Float16 -> 26
         | DataTypeKind.Enum _ -> 27
         | DataTypeKind.Extension _ -> 28
+        | DataTypeKind.Map _ -> 29
 
     /// <summary>Get the corresponding PlDataType enum value.</summary>
     member this.ToPlDataType() = enum<PlDataType>(this.Code)
@@ -758,6 +794,8 @@ and DataType(handle: DataTypeHandle, kind: DataTypeKind) =
                 |> Seq.toList
 
             DataType.Struct fields
+        | :? Apache.Arrow.Types.MapType as m ->
+            DataType.Map(DataType.FromArrowType m.KeyField.DataType, DataType.FromArrowType m.ValueField.DataType)
         | _ -> raise (NotSupportedException(sprintf "ArrowType %s is not supported yet." (arrowType.GetType().Name)))
 
     /// <summary>

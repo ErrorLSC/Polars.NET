@@ -65,6 +65,7 @@
     <Compile Include="SubqueryGraftingTests.fs" />
     <Compile Include="QueryOptionSemanticsTests.fs" />
     <Compile Include="DisplayTests.fs" />
+    <Compile Include="MapTypeTests.fs" />
     <Compile Include="SqlParserTests.fs" />
     <Compile Include="SqlExpressionTests.fs" />
     <Compile Include="SqlQueryTests.fs" />

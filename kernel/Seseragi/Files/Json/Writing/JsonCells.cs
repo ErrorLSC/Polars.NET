@@ -62,6 +62,10 @@ internal abstract unsafe class JsonCell
                 throw new NotSupportedException($"Column '{path}': the time zone '{zone}' is not known.");
             case Decimal256Type:
                 throw new NotSupportedException($"Column '{path}': {field.DataType.Name} cannot be written as JSON.");
+            case MapType m when IsEntries(field):
+                Check(m.KeyField, path + "[].Key");
+                Check(m.ValueField, path + "[].Value");
+                break;
             case MapType m:
                 if (m.KeyField.DataType is not (StringType or LargeStringType or StringViewType))
                     throw new NotSupportedException($"Column '{path}': the keys of a map written as JSON are strings, not {m.KeyField.DataType.Name}.");
@@ -117,14 +121,14 @@ internal abstract unsafe class JsonCell
         Time64Type t => new TimeCell(data, pins, path, UnitNanos(t.Unit), wide: true),
         DurationType t => new DurationCell(data, pins, path, UnitNanos(t.Unit)),
         ListType l => new ListCell(data, pins, path, For(data.Children[0], l.ValueField, pins, path + "[]"), ListLayout.Offsets32),
-        LargeListType { ValueField.DataType: StructType entry } when field.Metadata?.ContainsKey(Reading.JsonColumn.ObjectKey) == true =>
-            new MapCell(data, pins, path, For(data.Children[0].Children[0], entry.Fields[0], pins, path + "{}"),
-                For(data.Children[0].Children[1], entry.Fields[1], pins, path + "{}"), large: true),
         LargeListType l => new ListCell(data, pins, path, For(data.Children[0], l.ValueField, pins, path + "[]"), ListLayout.Offsets64),
         ListViewType l => new ListCell(data, pins, path, For(data.Children[0], l.ValueField, pins, path + "[]"), ListLayout.Views32),
         LargeListViewType l => new ListCell(data, pins, path, For(data.Children[0], l.ValueField, pins, path + "[]"), ListLayout.Views64),
         FixedSizeListType l => new FixedListCell(data, pins, path, For(data.Children[0], l.ValueField, pins, path + "[]"), l.ListSize),
         StructType s => new StructCell(data, pins, path, [.. s.Fields.Select((f, i) => (JsonText.Name(f.Name), For(data.Children[i], f, pins, Child(path, f.Name))))]),
+        MapType m when IsEntries(field) => new ListCell(data, pins, path,
+            For(data.Children[0], new Field("entries", new StructType([new Field("Key", m.KeyField.DataType, false, m.KeyField.Metadata), new Field("Value", m.ValueField.DataType, true, m.ValueField.Metadata)]), false), pins, path + "[]"),
+            ListLayout.Offsets32),
         MapType m => new MapCell(data, pins, path, For(data.Children[0].Children[0], m.KeyField, pins, path + "{}"),
             For(data.Children[0].Children[1], m.ValueField, pins, path + "{}")),
         DictionaryType d => new DictionaryCell(data, pins, path, d.IndexType, For(data.Dictionary, new Field(field.Name, d.ValueType, true), pins, path)),
@@ -132,6 +136,8 @@ internal abstract unsafe class JsonCell
     };
 
     private static bool IsGuid(Field field) => field.Metadata?.ContainsKey(Reading.JsonColumn.GuidKey) == true;
+
+    private static bool IsEntries(Field field) => field.Metadata?.ContainsKey(Reading.JsonColumn.EntriesKey) == true;
 
     private static long UnitNanos(TimeUnit unit) => unit switch
     {
@@ -495,15 +501,15 @@ internal sealed class StructCell(ArrayData data, Pins pins, string path, (byte[]
 }
 
 /// <summary>Maps: objects, their (string) keys the names.</summary>
-internal sealed unsafe class MapCell(ArrayData data, Pins pins, string path, JsonCell keys, JsonCell values, bool large = false) : JsonCell(data, pins, path)
+internal sealed unsafe class MapCell(ArrayData data, Pins pins, string path, JsonCell keys, JsonCell values) : JsonCell(data, pins, path)
 {
     private readonly byte* _offsets = pins.Pin(data.Buffers[1]);
     private readonly int _entriesOffset = data.Children[0].Offset;
 
     public override void Write(ref TextOut o, long row)
     {
-        long start = large ? ((long*)_offsets)[row + Offset] : ((int*)_offsets)[row + Offset];
-        long end = large ? ((long*)_offsets)[row + Offset + 1] : ((int*)_offsets)[row + Offset + 1];
+        long start = ((int*)_offsets)[row + Offset];
+        long end = ((int*)_offsets)[row + Offset + 1];
         o.Byte((byte)'{');
         for (long entry = start + (long)_entriesOffset; entry < end + (long)_entriesOffset; entry++)
         {

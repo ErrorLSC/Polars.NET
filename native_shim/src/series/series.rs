@@ -2,7 +2,7 @@ use crate::pl_io::arrow::ArrowArrayContext;
 use crate::types::{DataFrameContext, DataTypeContext, SeriesContext};
 use polars::chunked_array::cast::CastOptions;
 use polars::prelude::*;
-use polars_arrow::array::{Array, ListArray};
+use polars_arrow::array::{Array, ListArray, MapArray};
 use polars_arrow::datatypes::ArrowDataType;
 use polars_buffer::Buffer;
 use polars_core::utils::Wrap;
@@ -247,16 +247,14 @@ pub fn series_from_arrow_with_metadata(
     Series::try_from((&field, array))
 }
 
-/// Whether an Arrow dtype is, or nests, a dictionary: such data has to be converted to its Polars
-/// (Categorical / Enum) physical form, never reinterpreted under a Polars dtype.
-pub fn contains_dictionary(dtype: &ArrowDataType) -> bool {
+/// Whether an Arrow dtype is, or nests, a dictionary or a map: such data has to be converted to its Polars physical
+/// form (Categorical / Enum; a Map's entries as a large list), never reinterpreted under a Polars dtype.
+pub fn needs_conversion(dtype: &ArrowDataType) -> bool {
     match dtype {
-        ArrowDataType::Dictionary(_, _, _) => true,
-        ArrowDataType::List(f) | ArrowDataType::LargeList(f) | ArrowDataType::FixedSizeList(f, _) | ArrowDataType::Map(f, _) => {
-            contains_dictionary(&f.dtype)
-        },
-        ArrowDataType::Struct(fields) => fields.iter().any(|f| contains_dictionary(&f.dtype)),
-        ArrowDataType::Extension(ext) => contains_dictionary(&ext.inner),
+        ArrowDataType::Dictionary(_, _, _) | ArrowDataType::Map(_, _) => true,
+        ArrowDataType::List(f) | ArrowDataType::LargeList(f) | ArrowDataType::FixedSizeList(f, _) => needs_conversion(&f.dtype),
+        ArrowDataType::Struct(fields) => fields.iter().any(|f| needs_conversion(&f.dtype)),
+        ArrowDataType::Extension(ext) => needs_conversion(&ext.inner),
         _ => false,
     }
 }
@@ -317,6 +315,21 @@ pub fn upgrade_to_large_list(array: Box<dyn Array>) -> Box<dyn Array> {
                 list_array.validity().cloned(),
             );
             Box::new(large_list)
+        }
+        ArrowDataType::Map(entries, keys_sorted) => {
+            // A map keeps its i32 offsets; only lists nested in its keys or values are upgraded.
+            let map_array = array.as_any().downcast_ref::<MapArray>().unwrap();
+            let new_field = upgrade_to_large_list(map_array.field().clone());
+            if new_field.dtype() == map_array.field().dtype() {
+                return array;
+            }
+            let new_entries = entries.as_ref().clone().with_dtype(new_field.dtype().clone());
+            Box::new(MapArray::new(
+                ArrowDataType::Map(Box::new(new_entries), *keys_sorted),
+                map_array.offsets().clone(),
+                new_field,
+                map_array.validity().cloned(),
+            ))
         }
         ArrowDataType::Struct(fields) => {
             let struct_array = array.as_any().downcast_ref::<StructArray>().unwrap();

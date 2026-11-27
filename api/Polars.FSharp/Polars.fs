@@ -159,6 +159,14 @@ module pl =
         new Expr(PolarsWrapper.Lit sHandle)
 
     /// <summary>
+    /// A Map literal: one map[key, value] value holding the entries (an F# Map, a Dictionary...).
+    /// <para>Example: <c>pl.litMap (Map [ "a", 1L ])</c> is {"a": 1} as map[str, i64].</para>
+    /// </summary>
+    let litMap (value: System.Collections.Generic.IReadOnlyDictionary<'K, 'V>) =
+        use s = Series.create ("literal", Seq.singleton value)
+        (litSeries s).First()
+
+    /// <summary>
     /// Creates a scalar Binary Literal Expression from a byte array.
     /// </summary>
     let litBinary (value: byte[]) =
@@ -801,6 +809,8 @@ module pl =
     let time = DataType.Time
     /// <summary> List data type. </summary>
     let list (inner: DataType) = DataType.List inner
+    /// <summary> Map data type: key-value entries, shown as map[key, value]. </summary>
+    let map (keyType: DataType) (valueType: DataType) = DataType.Map(keyType, valueType)
     /// <summary> Array data type.(Also known as fixed length list) </summary>
     let array (inner: DataType) (shape: uint[]) = DataType.Array(inner, shape)
     /// <summary> Struct data type. </summary>
@@ -1534,6 +1544,10 @@ module pl =
         /// <summary> Select struct columns.</summary>
         let inline structType () =
             new Selector(PolarsWrapper.SelectorStruct())
+
+        /// <summary> Select Map columns (map[key, value]), whatever their key and value types.</summary>
+        let inline map () =
+            new Selector(PolarsWrapper.SelectorMap())
 
         /// <summary> Select temporal columns.</summary>
         let inline temporal () =

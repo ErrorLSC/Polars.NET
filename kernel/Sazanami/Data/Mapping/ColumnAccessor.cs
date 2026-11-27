@@ -1,4 +1,6 @@
 using System.Buffers;
+using System.Reflection;
+using System.Runtime.ExceptionServices;
 using System.Diagnostics.CodeAnalysis;
 using System.Numerics;
 using System.Collections;
@@ -170,7 +172,15 @@ public static class ColumnAccessorFactory
             && MapAccessorTypes.Entries(field.DataType) is not null)
         {
             Type mapAccessorType = typeof(MapAccessor<,>).MakeGenericType(keyType, valueType);
-            return (ColumnAccessor)Activator.CreateInstance(mapAccessorType, effectiveType, field.DataType, foldNulls)!;
+            try
+            {
+                return (ColumnAccessor)Activator.CreateInstance(mapAccessorType, effectiveType, field.DataType, foldNulls)!;
+            }
+            catch (TargetInvocationException e) when (e.InnerException is { } refusal)
+            {
+                ExceptionDispatchInfo.Throw(refusal); // the accessor's own refusal (a nested key), not the reflection wrapper
+                throw;
+            }
         }
 
         if (field.DataType is Decimal128Type { Scale: 0 } && (effectiveType == typeof(Int128) || effectiveType == typeof(UInt128)))

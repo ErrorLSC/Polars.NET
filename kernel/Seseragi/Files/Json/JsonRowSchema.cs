@@ -32,15 +32,17 @@ internal static class JsonRowSchema
         if (node.IsGuid) return Marked(field, field.DataType, JsonColumn.GuidKey);
         switch (field.DataType)
         {
-            case LargeListType { ValueField: { DataType: StructType entry } item } when node.IsMap:
+            case MapType map when node.IsMap:
             {
                 RowNode entryNode = node.Children[0];
-                Field key = Field(entry.Fields[0], entryNode.Children[0], write), value = Field(entry.Fields[1], entryNode.Children[1], write);
-                if (key.DataType is not (StringType or LargeStringType or StringViewType))
-                    return With(field, new LargeListType(new Field(item.Name, new StructType([key, value]), item.IsNullable, item.Metadata)));
-                return write
-                    ? Marked(field, new LargeListType(new Field(item.Name, new StructType([key, value]), item.IsNullable, item.Metadata)), JsonColumn.ObjectKey)
-                    : With(field, new MapType(new Field("key", key.DataType, false), value));
+                Field key = Field(map.KeyField, entryNode.Children[0], write), value = Field(map.ValueField, entryNode.Children[1], write);
+                if (key.DataType is StringType or LargeStringType or StringViewType)
+                    return With(field, new MapType(key, value, map.KeySorted));
+                // Other keys: an array of { "Key": …, "Value": … } objects, as serializers write key / value pairs. Written
+                // from the map itself (marked), read as a list of such structs (the rows take it as their dictionary).
+                if (write) return Marked(field, new MapType(key, value, map.KeySorted), JsonColumn.EntriesKey);
+                var entries = new StructType([new Field("Key", key.DataType, false, key.Metadata), new Field("Value", value.DataType, true, value.Metadata)]);
+                return With(field, new LargeListType(new Field("item", entries, true)));
             }
             case LargeListType list:
                 return With(field, new LargeListType(Field(list.ValueField, node.Children[0], write)));
