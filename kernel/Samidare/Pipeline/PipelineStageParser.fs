@@ -832,6 +832,8 @@ module internal PipelineStageParser =
                         ->
                         true
                     | :? NewExpression as ne when isTupleOrAnonType ne.Type ->
+                        // The row rebuilt as it was: each item in its place, under its own name. An anonymous type
+                        // names its members (`new { a = t.Item1 }` renames the item: not a passthrough).
                         ne.Arguments
                         |> Seq.mapi (fun idx arg ->
                             match ExpressionPatterns.unwrap arg with
@@ -840,6 +842,7 @@ module internal PipelineStageParser =
                                 && (mem.Name = sprintf "Item%d" (idx + 1)
                                     || mem.Name = "Outer" && idx = 0
                                     || mem.Name = "Inner" && idx = 1)
+                                && (isNull ne.Members || ne.Members.[idx].Name = mem.Name)
                                 ->
                                 true
                             | _ -> false)
@@ -1053,6 +1056,13 @@ module internal PipelineStageParser =
 
         | MethodCall(m, null, [ first; second; StripQuotes(:? LambdaExpression as keySel) ]) when m.Name = "UnionBy" ->
             flattenStages first (LinqStage.Union(second, Some keySel) :: acc)
+
+        // A SelectMany over an independent sequence the outer row filters or projects: a cross join and filters; with
+        // DefaultIfEmpty and key equalities, a left join.
+        | :? MethodCallExpression as mc when (FSharpAst.tryUnnestCorrelatedSelectMany mc).IsSome ->
+            flattenStages (FSharpAst.tryUnnestCorrelatedSelectMany mc).Value acc
+        | :? MethodCallExpression as mc when (FSharpAst.tryCorrelatedLeftJoin mc).IsSome ->
+            flattenStages (FSharpAst.tryCorrelatedLeftJoin mc).Value acc
 
         | MethodCall(m, null, source :: StripQuotes(:? LambdaExpression as colSel) :: rest) when
             m.Name = "SelectMany"

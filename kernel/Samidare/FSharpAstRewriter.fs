@@ -251,7 +251,7 @@ module internal FSharpAst =
     /// as a C# anonymous type's construction names them. None for any other construction.
     /// </summary>
     let private anonymousRecordMembers (ne: NewExpression) : MemberInfo[] option =
-        if (not (isNull ne.Members) && ne.Members.Count > 0) || isNull ne.Constructor
+        if not (isNull ne.Members) && ne.Members.Count > 0 || isNull ne.Constructor
            || not (ne.Type.Name.Contains "AnonymousType") || ne.Type.Name.StartsWith "AnonymousObject" then
             None
         else
@@ -709,6 +709,234 @@ module internal FSharpAst =
                 | _ -> None
             | _ -> None
 
+    /// The Where / Select operators (not the index-taking ones) on top of a SelectMany's per-row sequence, outermost
+    /// last, and the sequence under them.
+    let private filtersAndProjections (body: Expression) =
+        let rec peel (e: Expression) acc =
+            match e with
+            | :? MethodCallExpression as call when
+                isNull call.Object && isSequenceOperator call.Method && call.Method.IsGenericMethod
+                && (call.Method.Name = "Where" || call.Method.Name = "Select") && isElementWise call.Method
+                ->
+                peel call.Arguments.[0] (call :: acc)
+            | inner -> inner, acc
+        peel body []
+
+    /// <summary>
+    /// A SelectMany over an independent sequence filtered and projected by the outer row (a correlated subquery, as C#
+    /// writes a lateral join):
+    ///   src.SelectMany(a => S.Where(y => P(a, y)).Select(y => f(a, y)), (a, z) => r(a, z))
+    /// where S does not read `a`. Filters and projections distribute over SelectMany, so it is the flat chain
+    ///   src.SelectMany(a => S, (a, d) => new AnonymousObject(a, d)).Where(p => P(p.Item1, p.Item2))
+    ///      .Select(p => new AnonymousObject(p.Item1, f(p.Item1, p.Item2))).Select(p => r(p.Item1, p.Item2))
+    /// an uncorrelated cross join and filters over the pair, which joins become; without a result selector the last
+    /// Select takes the element. Unlike tryUnnestSelectMany, every operator and the result selector may read `a`.
+    /// Language-neutral: the stage parser applies it to every query (C# writes this shape directly).
+    /// </summary>
+    let tryUnnestCorrelatedSelectMany (mc: MethodCallExpression) : Expression option =
+        if mc.Method.DeclaringType <> typeof<Queryable> || mc.Method.Name <> "SelectMany" || (mc.Arguments.Count <> 2 && mc.Arguments.Count <> 3) then
+            None
+        else
+            let resSel =
+                if mc.Arguments.Count = 3 then
+                    match unwrapQuote mc.Arguments.[2] with
+                    | :? LambdaExpression as l when l.Parameters.Count = 2 -> Some(Some l)
+                    | _ -> None
+                else Some None
+            match unwrapQuote mc.Arguments.[1], resSel with
+            | (:? LambdaExpression as collSel), Some resSel when collSel.Parameters.Count = 1 ->
+                let a = collSel.Parameters.[0]
+                let perRow, ops = filtersAndProjections collSel.Body
+                let elementOf (t: Type) =
+                    t.GetInterfaces() |> Seq.append [ t ]
+                    |> Seq.tryPick (fun i -> if i.IsGenericType && i.GetGenericTypeDefinition() = typedefof<IEnumerable<_>> then Some(i.GetGenericArguments().[0]) else None)
+                match elementOf perRow.Type with
+                | Some elemType when not ops.IsEmpty && not (referencesParameter a perRow) && ops |> List.exists (referencesParameter a) ->
+                    let pairDef = typedefof<Microsoft.FSharp.Linq.RuntimeHelpers.AnonymousObject<_, _>>
+                    let pairOf (item2: Type) = pairDef.MakeGenericType(a.Type, item2)
+                    let newPair (pairType: Type) (item1: Expression) (item2: Expression) =
+                        Expression.New(pairType.GetConstructor [| a.Type; item2.Type |], [| item1; item2 |],
+                            [| pairType.GetProperty "Item1" :> MemberInfo; pairType.GetProperty "Item2" |]) :> Expression
+                    // The overload of `arity` parameters whose first lambda is a Func of two type arguments (not the
+                    // index-taking one).
+                    let queryable name (arity: int) =
+                        typeof<Queryable>.GetMethods(BindingFlags.Public ||| BindingFlags.Static)
+                        |> Array.find (fun m ->
+                            m.Name = name && m.GetParameters().Length = arity
+                            && (let f = m.GetParameters().[1].ParameterType.GetGenericArguments().[0] in f.GetGenericArguments().Length = 2))
+                    // The per-row lambda's body read over the pair: its element is pair.Item2, the outer row pair.Item1.
+                    let overPair (pair: ParameterExpression) (element: ParameterExpression) (body: Expression) =
+                        let map = Dictionary<ParameterExpression, Expression>(HashIdentity.Reference)
+                        map.[element] <- Expression.Property(pair, "Item2")
+                        map.[a] <- Expression.Property(pair, "Item1")
+                        ParameterReplacer(map).Visit body
+                    let firstPair = pairOf elemType
+                    let d = Expression.Parameter(elemType, "d")
+                    let collection = Expression.Lambda(typedefof<Func<_, _>>.MakeGenericType(a.Type, typedefof<IEnumerable<_>>.MakeGenericType elemType), perRow, [| a |])
+                    let flat =
+                        Expression.Call(
+                            (queryable "SelectMany" 3).MakeGenericMethod(a.Type, elemType, firstPair), mc.Arguments.[0],
+                            Expression.Quote collection, Expression.Quote(Expression.Lambda(newPair firstPair a d, [| a; d |]))) :> Expression
+                    let chain, pairType =
+                        ops
+                        |> List.fold
+                            (fun (source: Expression, pairType: Type) (op: MethodCallExpression) ->
+                                let lambda = unwrapQuote op.Arguments.[1] :?> LambdaExpression
+                                let pair = Expression.Parameter(pairType, "pair")
+                                let body = overPair pair lambda.Parameters.[0] lambda.Body
+                                if op.Method.Name = "Where" then
+                                    Expression.Call((queryable "Where" 2).MakeGenericMethod pairType, source, Expression.Quote(Expression.Lambda(body, [| pair |]))) :> Expression,
+                                    pairType
+                                else
+                                    let next = pairOf body.Type
+                                    let item1 = Expression.Property(pair, "Item1") :> Expression
+                                    Expression.Call((queryable "Select" 2).MakeGenericMethod(pairType, next), source,
+                                        Expression.Quote(Expression.Lambda(newPair next item1 body, [| pair |]))) :> Expression,
+                                    next)
+                            (flat, firstPair)
+                    let pair = Expression.Parameter(pairType, "pair")
+                    let result =
+                        match resSel with
+                        | Some r ->
+                            let map = Dictionary<ParameterExpression, Expression>(HashIdentity.Reference)
+                            map.[r.Parameters.[0]] <- Expression.Property(pair, "Item1")
+                            map.[r.Parameters.[1]] <- Expression.Property(pair, "Item2")
+                            ParameterReplacer(map).Visit r.Body
+                        | None -> Expression.Property(pair, "Item2") :> Expression
+                    Some(Expression.Call((queryable "Select" 2).MakeGenericMethod(pairType, result.Type), chain, Expression.Quote(Expression.Lambda(result, [| pair |]))) :> Expression)
+                | _ -> None
+            | _ -> None
+
+    /// <summary>
+    /// A SelectMany over an independent sequence filtered by the outer row and defaulted when empty (C#'s lateral
+    /// left join):
+    ///   src.SelectMany(a => S.Where(y => fa1(a) == fy1(y) &amp;&amp; … &amp;&amp; Q(y)).DefaultIfEmpty(), (a, z) => r(a, z))
+    /// is the left join
+    ///   src.GroupJoin(S.Where(y => Q(y)), a => key(fa…), y => key(fy…), (a, g) => new AnonymousObject(a, g))
+    ///      .SelectMany(p => p.Item2.DefaultIfEmpty(), (p, z) => r(p.Item1, z))
+    /// when every conjunct of the filter is an equality of a part reading only `a` with a part reading only `y`, or
+    /// reads only `y`. Keys must be non-nullable value types: `==` on nulls is true where join keys never match.
+    /// </summary>
+    let tryCorrelatedLeftJoin (mc: MethodCallExpression) : Expression option =
+        if mc.Method.DeclaringType <> typeof<Queryable> || mc.Method.Name <> "SelectMany" || (mc.Arguments.Count <> 2 && mc.Arguments.Count <> 3) then
+            None
+        else
+            let resSel =
+                if mc.Arguments.Count = 3 then
+                    match unwrapQuote mc.Arguments.[2] with
+                    | :? LambdaExpression as l when l.Parameters.Count = 2 -> Some(Some l)
+                    | _ -> None
+                else Some None
+            match unwrapQuote mc.Arguments.[1], resSel with
+            | (:? LambdaExpression as collSel), Some resSel when collSel.Parameters.Count = 1 ->
+                let a = collSel.Parameters.[0]
+                match collSel.Body with
+                | :? MethodCallExpression as dflt when
+                    isNull dflt.Object && isSequenceOperator dflt.Method && dflt.Method.Name = "DefaultIfEmpty" && dflt.Arguments.Count = 1
+                    ->
+                    // The Where filters under DefaultIfEmpty, and the independent sequence under them.
+                    let rec wheres (e: Expression) acc =
+                        match e with
+                        | :? MethodCallExpression as w when
+                            isNull w.Object && isSequenceOperator w.Method && w.Method.Name = "Where" && isElementWise w.Method
+                            ->
+                            wheres w.Arguments.[0] ((unwrapQuote w.Arguments.[1] :?> LambdaExpression) :: acc)
+                        | inner -> inner, acc
+                    let source, filters = wheres dflt.Arguments.[0] []
+                    let elemType = dflt.Method.GetGenericArguments().[0]
+                    let y = Expression.Parameter(elemType, "y")
+                    let rec conjuncts (e: Expression) =
+                        match e with
+                        | :? BinaryExpression as b when b.NodeType = ExpressionType.AndAlso -> conjuncts b.Left @ conjuncts b.Right
+                        | e -> [ e ]
+                    let parts =
+                        filters
+                        |> List.collect (fun l ->
+                            let map = Dictionary<ParameterExpression, Expression>(HashIdentity.Reference)
+                            map.[l.Parameters.[0]] <- y
+                            conjuncts (ParameterReplacer(map).Visit l.Body))
+                    let reads (p: ParameterExpression) e = referencesParameter p e
+                    let isKeyType (t: Type) = t.IsValueType && isNull (Nullable.GetUnderlyingType t)
+                    // Each conjunct as a key pair (outer part, inner part), or an inner-only filter; None otherwise.
+                    let classified =
+                        parts
+                        |> List.map (fun part ->
+                            match part with
+                            | _ when not (reads a part) -> Some(Choice2Of2 part)
+                            | :? BinaryExpression as eq when eq.NodeType = ExpressionType.Equal && isNull eq.Method && isKeyType eq.Left.Type ->
+                                match reads a eq.Left, reads y eq.Left, reads a eq.Right, reads y eq.Right with
+                                | true, false, false, true -> Some(Choice1Of2(eq.Left, eq.Right))
+                                | false, true, true, false -> Some(Choice1Of2(eq.Right, eq.Left))
+                                | _ -> None
+                            | _ -> None)
+                    let keys = classified |> List.choose (function Some(Choice1Of2 k) -> Some k | _ -> None)
+                    let innerOnly = classified |> List.choose (function Some(Choice2Of2 f) -> Some f | _ -> None)
+                    if referencesParameter a source || keys.IsEmpty || keys.Length > 7 || classified |> List.exists Option.isNone then
+                        None
+                    else
+                        let isQueryableSource = typedefof<IQueryable<_>>.MakeGenericType(elemType).IsAssignableFrom source.Type
+                        let inner =
+                            match innerOnly with
+                            | [] -> source
+                            | first :: rest ->
+                                let body = rest |> List.fold (fun acc f -> Expression.AndAlso(acc, f) :> Expression) first
+                                let lambda = Expression.Lambda(body, [| y |])
+                                if isQueryableSource then
+                                    let where = typeof<Queryable>.GetMethods() |> Array.find (fun m -> m.Name = "Where" && (m.GetParameters().[1].ParameterType.GetGenericArguments().[0]).GetGenericArguments().Length = 2)
+                                    Expression.Call(where.MakeGenericMethod elemType, source, Expression.Quote lambda) :> Expression
+                                else
+                                    let where = typeof<Enumerable>.GetMethods() |> Array.find (fun m -> m.Name = "Where" && m.GetParameters().[1].ParameterType.GetGenericArguments().Length = 2)
+                                    Expression.Call(where.MakeGenericMethod elemType, source, lambda) :> Expression
+                        // One key: the value itself; several: an AnonymousObject of them, on both sides.
+                        let key (part: (Expression * Expression) -> Expression) =
+                            match keys with
+                            | [ k ] -> part k
+                            | _ ->
+                                let values = keys |> List.map part
+                                let keyType =
+                                    Type.GetType(sprintf "Microsoft.FSharp.Linq.RuntimeHelpers.AnonymousObject`%d, FSharp.Core" values.Length)
+                                        .MakeGenericType([| for v in values -> v.Type |])
+                                Expression.New(keyType.GetConstructor [| for v in values -> v.Type |], values,
+                                    [| for i in 1 .. values.Length -> keyType.GetProperty(sprintf "Item%d" i) :> MemberInfo |]) :> Expression
+                        let outerKey = Expression.Lambda(key fst, [| a |])
+                        let innerKey = Expression.Lambda(key snd, [| y |]) // an Equal's operands share their type
+                        let groupType = typedefof<IEnumerable<_>>.MakeGenericType elemType
+                        let pairType = typedefof<Microsoft.FSharp.Linq.RuntimeHelpers.AnonymousObject<_, _>>.MakeGenericType(a.Type, groupType)
+                        let g = Expression.Parameter(groupType, "g")
+                        let pairSel =
+                            Expression.Lambda(
+                                Expression.New(pairType.GetConstructor [| a.Type; groupType |], [| a :> Expression; g |],
+                                    [| pairType.GetProperty "Item1" :> MemberInfo; pairType.GetProperty "Item2" |]),
+                                [| a; g |])
+                        let groupJoin =
+                            typeof<Queryable>.GetMethods() |> Array.find (fun m -> m.Name = "GroupJoin" && m.GetParameters().Length = 5 && m.GetGenericArguments().Length = 4)
+                        let joined =
+                            Expression.Call(groupJoin.MakeGenericMethod(a.Type, elemType, outerKey.ReturnType, pairType), mc.Arguments.[0], inner,
+                                Expression.Quote outerKey, Expression.Quote innerKey, Expression.Quote pairSel) :> Expression
+                        let p = Expression.Parameter(pairType, "p")
+                        let defaultIfEmpty = typeof<Enumerable>.GetMethods() |> Array.find (fun m -> m.Name = "DefaultIfEmpty" && m.GetParameters().Length = 1)
+                        let perGroup =
+                            Expression.Lambda(typedefof<Func<_, _>>.MakeGenericType(pairType, groupType),
+                                Expression.Call(defaultIfEmpty.MakeGenericMethod elemType, Expression.Property(p, "Item2")), [| p |])
+                        let z = Expression.Parameter(elemType, "z")
+                        let result =
+                            match resSel with
+                            | Some r ->
+                                let map = Dictionary<ParameterExpression, Expression>(HashIdentity.Reference)
+                                map.[r.Parameters.[0]] <- Expression.Property(p, "Item1")
+                                map.[r.Parameters.[1]] <- z
+                                ParameterReplacer(map).Visit r.Body
+                            | None -> z :> Expression
+                        let selectMany =
+                            typeof<Queryable>.GetMethods()
+                            |> Array.find (fun m ->
+                                m.Name = "SelectMany" && m.GetParameters().Length = 3
+                                && (m.GetParameters().[1].ParameterType.GetGenericArguments().[0]).GetGenericArguments().Length = 2)
+                        Some(Expression.Call(selectMany.MakeGenericMethod(pairType, elemType, result.Type), joined,
+                                Expression.Quote perGroup, Expression.Quote(Expression.Lambda(result, [| p; z |]))) :> Expression)
+                | _ -> None
+            | _ -> None
+
     /// Replaces the items of one AnonymousObject parameter (`after.Item1`, …) by the values it was built of; any other
     /// use of the parameter is noted (the replacement then does not stand).
     type private ItemReplacer(parameter: ParameterExpression, items: Map<string, Expression>) =
@@ -1045,12 +1273,12 @@ module internal FSharpAst =
     let private isNestedSelectMany (mc: MethodCallExpression) =
         mc.Method.Name = "SelectMany"
         && mc.Arguments.Count = 3
-        && (match unwrapQuote mc.Arguments.[1] with
-            | :? LambdaExpression as l ->
-                match l.Body with
-                | :? MethodCallExpression as body -> isSequenceOperator body.Method && body.Method.IsGenericMethod && isElementWise body.Method
-                | _ -> false
-            | _ -> false)
+        && match unwrapQuote mc.Arguments.[1] with
+           | :? LambdaExpression as l ->
+               match l.Body with
+               | :? MethodCallExpression as body -> isSequenceOperator body.Method && body.Method.IsGenericMethod && isElementWise body.Method
+               | _ -> false
+           | _ -> false
 
     /// Fast-path scanner checking if an expression contains F#-specific constructs
     /// (e.g. Quotations, curried FSharpFunc closures, F# operators, nested SelectMany chains, or tuples >= 8 items).
