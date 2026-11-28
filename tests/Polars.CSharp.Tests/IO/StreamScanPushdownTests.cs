@@ -9,8 +9,8 @@ namespace Polars.CSharp.Tests;
 
 /// <summary>
 /// .NET stream sources receive the columns and leading rows the query needs (<see cref="StreamScanRequest"/>), on
-/// every engine path: in memory (the engine calls the scan itself), streaming collects (the source is read into
-/// memory first) and sinks (the source is spooled to a temporary file first).
+/// every engine path: in memory, streaming collects and sinks (the engine's I/O plugin opens the stream for each run,
+/// streaming engines pulling its batches as they go).
 /// </summary>
 public class StreamScanPushdownTests
 {
@@ -197,12 +197,17 @@ public class StreamScanPushdownTests
         var source = new Source();
         using var lf = source.Scan();
         using (var df = Execute(lf.Slice(10, 5), run)) Assert.Equal([10, 11, 12, 13, 14], Ids(df));
+        Assert.Equal(1, source.BatchesRead); // up to its end: the first batch
         using (var df = Execute(lf.Filter(Pl.Col("Id") > 3).Head(5), run)) Assert.Equal([4, 5, 6, 7, 8], Ids(df));
 
         Assert.Equal(2, source.Requests.Count);
-        // An offset slice reads up to its end (offset + length); a head above an engine filter reads every row.
+        // An offset slice reads up to its end (offset + length); a head above an engine filter asks for every row.
         Assert.Equal([15, null], source.Requests.Select(r => r.RowLimit));
-        Assert.Equal(1 + Rows / BatchSize, source.BatchesRead);
+        // In memory and sunk the source is then read to its end; streaming, the engine stops pulling once the head is
+        // filled, and how far the source got by then is a matter of timing (all of it, mostly: it is fast).
+        int afterFilter = source.BatchesRead - 1;
+        if (run == Run.Streaming) Assert.InRange(afterFilter, 1, Rows / BatchSize);
+        else Assert.Equal(Rows / BatchSize, afterFilter);
     }
 
     [Theory]

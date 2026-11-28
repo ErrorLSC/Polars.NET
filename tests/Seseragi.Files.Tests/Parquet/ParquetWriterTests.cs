@@ -105,6 +105,26 @@ public sealed class ParquetWriterTests : IDisposable
     }
 
     [Fact]
+    public void TrimmedScratch_KeepsNothingOfTheMappedPages()
+    {
+        // Between row groups a partition's writer gives its buffers back, the pages' indices into their own
+        // dictionaries too (from the second row group on, a page is mapped to a dictionary of its own, 4 bytes a value):
+        // many writers stay open at once, and a sink's memory budget counts what each keeps.
+        const int rows = 2_000;
+        var batch = Batch(("a", Fixed(Int64Type.Default, [.. Enumerable.Range(0, rows).Select(i => (long?)(i % 10))]), true),
+            ("s", Strings([.. Enumerable.Range(0, rows).Select(i => $"v{i % 10}")]), true));
+        using var stream = new MemoryStream();
+        using var writer = ParquetWriter.Create(stream, batch.Schema, new ParquetWriteOptions { LeaveOpen = true });
+        for (int group = 0; group < 3; group++)
+        {
+            writer.Write(batch);
+            writer.EndRowGroup();
+            writer.TrimScratch();
+            Assert.InRange(writer.ScratchBytes, 0, 2 * 1024); // the dictionaries' small tables (some 512 bytes a column)
+        }
+    }
+
+    [Fact]
     public void LevelsBeyond255_AreRefused_255Written()
     {
         // Optional structs nested around an optional leaf: the leaf's definition level is the number of fields.

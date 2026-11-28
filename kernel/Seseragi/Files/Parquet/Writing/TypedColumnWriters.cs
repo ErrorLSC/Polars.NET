@@ -180,8 +180,9 @@ internal sealed class FixedColumnWriter<T, TOrder>(PageSettings settings, int ma
         public override long ScratchBytes => base.ScratchBytes + (long)Values.Capacity * Unsafe.SizeOf<T>() + (_local?.ScratchBytes ?? 0);
 
         /// <summary>Returns its memory to the pool (grown again as values come).</summary>
-        public void Trim()
+        public override void Trim()
         {
+            base.Trim();
             Values.Dispose();
             _local?.Dispose();
             _local = null;
@@ -614,8 +615,9 @@ internal sealed class BytesColumnWriter(PageSettings settings, int maxDef, int m
         public override long ScratchBytes => base.ScratchBytes + Arena.Capacity + 4L * (Offsets.Capacity + _lengths.Capacity) + (_local?.ScratchBytes ?? 0);
 
         /// <summary>Returns its memory to the pool (grown again as values come).</summary>
-        public void Trim()
+        public override void Trim()
         {
+            base.Trim();
             Arena.Dispose();
             Offsets.Dispose();
             Offsets.Reserve(1);
@@ -1033,8 +1035,9 @@ internal sealed class BooleanColumnWriter(PageSettings settings, int maxDef, int
         public override long ScratchBytes => base.ScratchBytes + Values.Capacity + _rle.Capacity + 4L * _bits.Capacity;
 
         /// <summary>Returns its memory to the pool (grown again as values come).</summary>
-        public void Trim()
+        public override void Trim()
         {
+            base.Trim();
             Values.Dispose();
             _rle.Trim();
             _bits.Dispose();

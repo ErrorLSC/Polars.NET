@@ -129,6 +129,16 @@ internal abstract class PageValues : IDisposable
     /// <summary>The native bytes it holds.</summary>
     public virtual long ScratchBytes => 4L * (_local.Capacity + _remap.Capacity);
 
+    /// <summary>
+    /// Returns its memory to the pool between row groups (grown again as values come): the page's indices into its
+    /// dictionary and their remapping, as a subclass returns its values and dictionary.
+    /// </summary>
+    public virtual void Trim()
+    {
+        _local.Dispose();
+        _remap.Dispose();
+    }
+
     public virtual void Dispose()
     {
         _local.Dispose();
