@@ -58,11 +58,14 @@ internal readonly record struct FinishedChunk(
 internal readonly record struct PageRecord(int Offset, int Size, long FirstRow, long Nulls, bool NullPage, int Bounds, int MinLength, int MaxLength, long Unencoded);
 
 /// <summary>
-/// Writes one leaf column of a row group: definition levels and values gathered page by page, each page encoded
-/// (dictionary indices or plain values) as soon as it is full, then compressed and checksummed (by a helper thread
-/// when the budget leaves one, a few pages in flight at most; the pages are kept in order whoever compressed them);
-/// the chunk is finished at the end of the row group (the dictionary page, built meanwhile, goes first). Subclasses hold the values of the
-/// page in their physical type, map them to a dictionary, encode them and keep the chunk's statistics.
+/// Writes one leaf column of a row group: definition levels and values gathered page by page. A full page's levels are
+/// encoded at once; its values (<see cref="PageValues"/>) are prepared on any thread (mapped to a dictionary of their
+/// own while the chunk may be dictionary-encoded; bounds), laid out in page order on the writer's thread (the
+/// dictionary judged, or merged with the page's in order of first appearance: the file is the one a single thread
+/// mapping each value would write), then encoded and compressed on any thread (helpers when the budget leaves them, a
+/// few pages in flight at most; the pages kept in order whoever ran them). The chunk is finished at the end of the
+/// row group (the dictionary page, built meanwhile, goes first). Subclasses hold the values of the page in their
+/// physical type, their dictionaries, and the chunk's statistics.
 /// </summary>
 internal abstract class ColumnWriter : IDisposable
 {
@@ -74,8 +77,9 @@ internal abstract class ColumnWriter : IDisposable
     // compressed by now or soon). One list: a column writer lives as long as its file, its objects in the oldest
     // generation, and every object it holds costs the garbage collector on each collection.
     private readonly List<PageJob> _pages = [];
-    private int _committed;
-    private long _committedBytes, _inFlightBound;
+    private int _resolved, _committed; // the first _resolved laid out (encoding chosen, merged into the dictionary)
+    private int _judging = -1;         // the page judging the dictionary, until laid out
+    private long _committedBytes, _inFlightBound, _unresolvedDictionaryBound;
     // Scratch and the dictionary page in native memory (the page is handed to the finished chunk, which frees it).
     private readonly NativeBufferWriter _values = new(1 << 16);
     private readonly NativeBufferWriter _levelScratch = new(1 << 12);
@@ -87,7 +91,6 @@ internal abstract class ColumnWriter : IDisposable
     private readonly NativeArray<byte> _pageDef = new(InitialLevels), _pageRep; // repetition levels only below a list
     private ValidityWords _validity; // the validity of the rows of a flat step (1024 at most)
     private int _validityWords;
-    private readonly NativeArray<uint> _indices = new(); // made room for when a page is dictionary-encoded
     private int _pageRows, _pageLevels, _pageNulls;
     private long _chunkLevels, _chunkNulls, _uncompressed;
     private PagesByEncoding _pagesBy; // data pages by ParquetEncoding
@@ -168,6 +171,11 @@ internal abstract class ColumnWriter : IDisposable
     /// <summary>The encoding of data pages written without the dictionary.</summary>
     private ParquetEncoding FallbackEncoding { get; }
 
+    // Page values once encoded (by whichever thread compressed the page) go back to the pool: kept for the next
+    // pages, they held measurably more memory with many writers open (30 partitions: +9 % peak RSS for two pages a
+    // column), for no speed.
+    private readonly Action<PageValues> _returnPage = static page => page.Dispose();
+
     private bool DictionaryCapable { get; }
 
     protected PageSettings Settings => _settings;
@@ -191,7 +199,7 @@ internal abstract class ColumnWriter : IDisposable
     }
 
     /// <summary>At least <see cref="BufferedBytes"/>, without waiting: pages in flight at their largest compressed size.</summary>
-    public long BufferedBytesBound => _committedBytes + _inFlightBound + OpenBytes;
+    public long BufferedBytesBound => _committedBytes + _inFlightBound + OpenBytes + _unresolvedDictionaryBound;
 
     /// <summary>Adds the rows <paramref name="offset"/> .. +<paramref name="count"/> of a flat column (no repetition, at most one optional level).</summary>
     public void Write(IArrowArray array, int offset, int count)
@@ -305,7 +313,7 @@ internal abstract class ColumnWriter : IDisposable
     /// <summary>Closes the chunk: its last page, the dictionary page; the writer is ready for the next row group after <see cref="Reset"/>.</summary>
     public FinishedChunk Finish()
     {
-        FlushPage();
+        FlushPage(last: true);
         Drain();
         int dictionaryPages = _pagesBy[(int)ParquetEncoding.RleDictionary];
         if (dictionaryPages > 0) WriteDictionaryPage();
@@ -334,7 +342,8 @@ internal abstract class ColumnWriter : IDisposable
         }
         PageJob[] owned = [.. _pages];
         _pages.Clear(); // the chunk owns its pages now: the writer may go on while they are written
-        _committed = 0;
+        _resolved = _committed = 0;
+        _judging = -1;
         NativeBufferWriter? dictionary = null;
         if (_dictionaryPage.WrittenCount > 0)
         {
@@ -446,29 +455,18 @@ internal abstract class ColumnWriter : IDisposable
     /// <summary>Frees the writer's native buffers (pages of an unfinished chunk included); the writer is not used after.</summary>
     public virtual void Dispose()
     {
-        // Every page waited for, one by one past a failure (helpers may still compress the pages after it), before
-        // any page's buffers go back to the pool.
-        while (_committed < _pages.Count)
-        {
-            try
-            {
-                CommitOldest();
-            }
-            catch (Exception)
-            {
-                // A page that failed to compress: its failure was reported where the chunk was finished.
-            }
-        }
+        // Every page waited for, one by one past a failure (helpers may still prepare or compress the pages after it),
+        // before any page's buffers go back to the pool.
         foreach (PageJob page in _pages) page.Release();
         _pages.Clear();
-        _committed = 0;
+        _resolved = _committed = 0;
+        _judging = -1;
         _values.Dispose();
         _levelScratch.Dispose();
         _body.Dispose();
         _dictionaryPage.Dispose();
         _pageDef.Dispose();
         _pageRep.Dispose();
-        _indices.Dispose();
         _bounds.Dispose();
         _defHistograms?.Dispose();
         _repHistograms?.Dispose();
@@ -481,7 +479,7 @@ internal abstract class ColumnWriter : IDisposable
     /// </summary>
     internal long ScratchBytes =>
         _values.Capacity + _levelScratch.Capacity + _body.Capacity + _dictionaryPage.Capacity
-        + _pageDef.Capacity + _pageRep.Capacity + 4L * _indices.Capacity + ValueScratchBytes;
+        + _pageDef.Capacity + _pageRep.Capacity + ValueScratchBytes;
 
     /// <summary>The native bytes of a subclass's scratch (its page values, dictionary).</summary>
     protected virtual long ValueScratchBytes => 0;
@@ -501,7 +499,6 @@ internal abstract class ColumnWriter : IDisposable
         _dictionaryPage.Trim(); // handed out only by Finish, which makes a new one
         _pageDef.Dispose();
         _pageRep.Dispose();
-        _indices.Dispose();
         _bounds.Dispose();
         _defHistograms?.Dispose();
         _repHistograms?.Dispose();
@@ -517,8 +514,9 @@ internal abstract class ColumnWriter : IDisposable
         Drain();
         foreach (PageJob page in _pages) page.Release(); // pages of a chunk never finished
         _pages.Clear();
-        _committed = 0;
-        _committedBytes = 0;
+        _resolved = _committed = 0;
+        _judging = -1;
+        _committedBytes = _unresolvedDictionaryBound = 0;
         _dictionaryPage.ResetWrittenCount();
         _boundsLength = _defHistogramLength = _repHistogramLength = 0;
         _chunkRows = _chunkUnencoded = 0;
@@ -533,89 +531,171 @@ internal abstract class ColumnWriter : IDisposable
 
     private PageType DataPageType => _settings.Version == ParquetPageVersion.V2 ? PageType.DataPageV2 : PageType.DataPage;
 
-    private void FlushPage()
+    /// <summary>
+    /// Closes the open page: its levels encoded, its values taken (<see cref="TakePage"/>) and queued in a page job to be
+    /// prepared (mapped to a dictionary of their own while the chunk may still be dictionary-encoded) on any thread,
+    /// then laid out in order (<see cref="ResolveOldest"/>), then encoded and compressed on any thread.
+    /// </summary>
+    private void FlushPage(bool last = false)
     {
         if (_pageRows == 0) return;
         int count = PageValueCount;
-        long unencoded = IsByteArray ? PageUnencodedBytes : 0;
-
-        // The dictionary first (indices only, no output yet): it is judged on the first page holding values (pages of
-        // nulls before it go without; they hold nothing to encode either way).
-        Span<uint> indices = default;
-        int bitWidth = 0;
-        if (_dictionary == DictionaryState.Building && (count > 0 || _dictionaryJudged))
-        {
-            _indices.Reserve(count);
-            if (_dictionaryJudged) MapToDictionary(_indices.AsSpan(0, count), 0);
-            else
-            {
-                // The first page with values decides: a dictionary that does not make it smaller is dropped for the whole
-                // chunk; for fixed-width values compressed afterwards, one that does not make it a quarter smaller
-                // (bit-packed indices hardly compress, plain values do: measured, plain then wrote smaller files and read
-                // faster). Mapped in steps: the dictionary and its indices' width only grow, so one that does not pay
-                // part way never will (keys and measurements are dropped without mapping the rest of the page).
-                _dictionaryJudged = true;
-                long worth = IsByteArray || _settings.Codec == CompressionCodec.Uncompressed ? PagePlainBytes : PagePlainBytes * 3 / 4;
-                for (int first = 0; first < count; first += JudgeStep)
-                {
-                    MapToDictionary(_indices.AsSpan(first, Math.Min(JudgeStep, count - first)), first);
-                    if (DictionaryPlainBytes + 1 + RleBitPackedEncoder.MaxBytes(count, IndexWidth) >= worth)
-                    {
-                        _dictionary = DictionaryState.Off;
-                        ClearDictionary();
-                        break;
-                    }
-                }
-            }
-            if (_dictionary == DictionaryState.Building)
-            {
-                indices = _indices.AsSpan(0, count);
-                bitWidth = IndexWidth;
-            }
-        }
-        bool dictionaryPage = _dictionary == DictionaryState.Building && indices.Length == count && (count > 0 || _dictionaryJudged);
-
-        // The page's bounds (from its distinct dictionary entries when it has them), then the index entry.
-        if (_settings.Statistics) FinishPageBounds(dictionaryPage ? indices : default);
-        byte[]? pageMin = null, pageMax = null;
-        if (!ClosePageBounds(count, out pageMin, out pageMax) && _settings.Statistics) _indexable = false;
+        long unencoded = IsByteArray ? PageUnencodedBytes : 0, plain = PagePlainBytes;
         if (_settings.SizeStatistics) Histograms();
         bool v1 = _settings.Version == ParquetPageVersion.V1;
-        int bounds = _boundsLength;
-        AppendBound(pageMin);
-        AppendBound(pageMax);
+        // The dictionary is judged on the first page holding values (pages of nulls before it go without; they hold
+        // nothing to encode either way); pages are mapped while the chunk may still be dictionary-encoded (its state
+        // as far as laid out: a page laid out later may still end it, and the page is written plainly then).
+        // A page judging the dictionary is laid out before the next page is mapped: a dictionary dropped on the first
+        // page leaves the rest unmapped, as one thread would.
+        if (_judging >= _resolved)
+        {
+            while (_resolved <= _judging) ResolveOldest();
+        }
+        _judging = -1;
+        bool judges = _dictionary == DictionaryState.Building && !_dictionaryJudged && count > 0, afterJudging = _dictionaryJudged;
+        if (judges)
+        {
+            _dictionaryJudged = true;
+            _judging = _pages.Count;
+        }
+        bool map = _dictionary == DictionaryState.Building && count > 0;
+        // A page with nothing to prepare, and the chunk's last (nothing is written meanwhile), are prepared, laid out
+        // and encoded at once, from the open page itself (kept open, emptied): no page values change hands (after the
+        // pages before it, laid out first).
+        bool inline = last || !map && !OpenPagePrepares;
+        if (inline)
+        {
+            while (_resolved < _pages.Count) ResolveOldest();
+        }
+        PageValues values = inline ? OpenPage() : TakePage();
+        // The values' bytes at most: plain, or bit-packed indices of 32 bits at the widest.
+        long valueBound = Math.Max(plain, (FallbackEncoding == ParquetEncoding.Plain ? 0 : plain) + 1L + RleBitPackedEncoder.MaxBytes(count, 32));
         var job = new PageJob(_settings)
         {
-            Record = new PageRecord(0, 0, _chunkRows, _pageNulls, count == 0, bounds, pageMin?.Length ?? -1, pageMax?.Length ?? -1, unencoded),
+            Record = new PageRecord(0, 0, _chunkRows, _pageNulls, count == 0, 0, -1, -1, unencoded),
             Seal = _encryptor?.ForChunk(_path, RowGroup, _column),
             Ordinal = _pages.Count, // the chunk's data pages so far
+            Return = _returnPage,
+            Judges = judges,
+            AfterJudging = afterJudging,
+            Values = values,
+            Inline = inline,
         };
         NativeBufferWriter raw = job.Raw;
-        raw.Reserve((int)Math.Min(Array.MaxLength / 2, PagePlainBytes + 2L * RleBitPackedEncoder.MaxBytes(_pageLevels, Math.Max(_defWidth, _repWidth)) + 16));
+        // The levels' room only: the values' comes as they are encoded (the page values hold them meanwhile).
+        raw.Reserve((int)Math.Min(Array.MaxLength / 2, 2L * RleBitPackedEncoder.MaxBytes(_pageLevels, Math.Max(_defWidth, _repWidth)) + 16));
 
         // Repetition levels, then definition levels (each RLE / bit-packed; none when the maximum is 0; format 1 puts
-        // each after its 4-byte length), then the values.
+        // each after its 4-byte length); the values follow once the page is laid out.
         int repBytes = 0, defBytes = 0;
         if (_maxRep > 0) repBytes = Levels(_pageRep.AsSpan(0, _pageLevels), _repWidth, v1, raw);
         if (_maxDef > 0) defBytes = Levels(_pageDef.AsSpan(0, _pageLevels), _defWidth, v1, raw);
         job.LevelsLength = raw.WrittenCount;
+        job.Shape = (_pageLevels, _pageNulls, _pageRows, defBytes, repBytes);
+        long worth = IsByteArray || _settings.Codec == CompressionCodec.Uncompressed ? plain : plain * 3 / 4;
+        job.Preparation = new PagePreparation(values, map, judges ? worth : null);
+        if (inline) job.Preparation.Complete(); // on this thread, before the open page takes rows again
+        job.Bound = (job.Seal is null ? 64 : 128) + PageCodecs.MaxCompressedLength(_settings.Codec, checked((int)Math.Min(Array.MaxLength, raw.WrittenCount + valueBound)));
+        job.DictionaryBound = map ? plain : 0;
+        _chunkLevels += _pageLevels;
+        _chunkNulls += _pageNulls;
+        _chunkRows += _pageRows;
+        _chunkUnencoded += unencoded;
+        _pageRows = _pageLevels = _pageNulls = 0;
+        Submit(job);
+    }
 
-        ParquetEncoding encoding = ParquetEncoding.Plain;
+    /// <summary>
+    /// Queues a page: prepared by a helper when the budget leaves one, laid out in order as soon as it is prepared (or
+    /// once too many wait), compressed by a helper; a few pages in flight at most. Columns encoding pages otherwise
+    /// than plainly or as indices lay each out at once: the encoding comes with the layout.
+    /// </summary>
+    private void Submit(PageJob job)
+    {
+        _pages.Add(job);
+        _inFlightBound += job.Bound;
+        _unresolvedDictionaryBound += job.DictionaryBound;
+        bool helped = _settings.Budget is { Max: > 1 } && FallbackEncoding == ParquetEncoding.Plain;
+        PagePreparation preparation = job.Preparation!;
+        if (helped && preparation.HasWork && _settings.Budget!.TryEnter()) preparation.Help(_settings.Budget);
+        int keep = helped ? MaxPreparing : 0;
+        // In order: the pages prepared (or with nothing to prepare), then the oldest until few wait.
+        while (_resolved < _pages.Count && (_pages[_resolved].Preparation is { } p && (p.IsDone || !p.HasWork) || _pages.Count - _resolved > keep)) ResolveOldest();
+        int inFlight = _settings.Budget is { Max: > 1 } ? MaxInFlight : 0;
+        while (_pages.Count - _committed > inFlight) CommitOldest();
+    }
+
+    /// <summary>The pages a column keeps waiting to be laid out while helpers prepare them.</summary>
+    private const int MaxPreparing = 2;
+
+    /// <summary>
+    /// Lays out the oldest page not laid out yet, once prepared (by this thread when no helper took it), as one thread
+    /// writing the pages in order would: the dictionary judged on it or merged with its own (the chunk's indices given
+    /// in order of first appearance, as when mapped directly), its encoding and bounds, its header; then queued to be
+    /// compressed.
+    /// </summary>
+    private void ResolveOldest()
+    {
+        PageJob job = _pages[_resolved++];
+        job.Preparation!.Complete();
+        _unresolvedDictionaryBound -= job.DictionaryBound;
+        PageValues values = job.Values!;
+        int count = values.Count;
+        bool dictionaryPage = false;
+        int bitWidth = 0;
+        if (_dictionary == DictionaryState.Building && (count > 0 || job.AfterJudging))
+        {
+            if (job.Judges && !values.Pays)
+            {
+                // A dictionary that does not make the first page smaller is dropped for the whole chunk; for fixed-width
+                // values compressed afterwards, one that does not make it a quarter smaller (bit-packed indices hardly
+                // compress, plain values do: measured, plain then wrote smaller files and read faster).
+                _dictionary = DictionaryState.Off;
+                ClearDictionary();
+            }
+            else
+            {
+                if (count > 0) MergeLocal(values);
+                dictionaryPage = true;
+                bitWidth = IndexWidth;
+            }
+        }
+
+        // The page's bounds, then the index entry.
+        if (!ClosePageBounds(values, count, out byte[]? pageMin, out byte[]? pageMax) && _settings.Statistics) _indexable = false;
+        int bounds = _boundsLength;
+        AppendBound(pageMin);
+        AppendBound(pageMax);
+        job.Record = job.Record with { Bounds = bounds, MinLength = pageMin?.Length ?? -1, MaxLength = pageMax?.Length ?? -1 };
+
+        ParquetEncoding encoding;
         if (dictionaryPage)
         {
-            raw.GetSpan(1)[0] = (byte)bitWidth;
-            raw.Advance(1);
-            RleBitPackedEncoder.Encode(indices, bitWidth, raw);
             encoding = ParquetEncoding.RleDictionary;
+            job.BitWidth = bitWidth;
             if (DictionaryPlainBytes > _settings.DictionaryBytes) _dictionary = DictionaryState.Full;
         }
-        if (encoding == ParquetEncoding.Plain)
+        else
         {
             encoding = FallbackEncoding;
-            if (encoding == ParquetEncoding.Plain) EncodePlain(raw);
-            else EncodeAs(encoding, raw);
+            if (encoding != ParquetEncoding.Plain)
+            {
+                values.EncodeAs(encoding, job.Raw);
+                job.Values = null;
+                if (!job.Inline) _returnPage(values);
+            }
         }
-        job.Header = v1
+        if (job.Inline && job.Values is not null)
+        {
+            // The open page itself: encoded now, then emptied for the rows to come.
+            if (dictionaryPage) values.EncodeIndices(bitWidth, job.Raw);
+            else values.EncodePlain(job.Raw);
+            job.Values = null;
+        }
+        if (job.Inline) values.Clear();
+        var (levels, nulls, rows, defBytes, repBytes) = job.Shape;
+        job.Header = _settings.Version == ParquetPageVersion.V1
             ? new PageHeader
             {
                 Type = PageType.DataPage,
@@ -623,7 +703,7 @@ internal abstract class ColumnWriter : IDisposable
                 CompressedPageSize = 0,
                 DataPageHeader = new DataPageHeader
                 {
-                    NumValues = _pageLevels,
+                    NumValues = levels,
                     Encoding = encoding,
                     DefinitionLevelEncoding = ParquetEncoding.Rle,
                     RepetitionLevelEncoding = ParquetEncoding.Rle,
@@ -636,9 +716,9 @@ internal abstract class ColumnWriter : IDisposable
                 CompressedPageSize = 0,
                 DataPageHeaderV2 = new DataPageHeaderV2
                 {
-                    NumValues = _pageLevels,
-                    NumNulls = _pageNulls,
-                    NumRows = _pageRows,
+                    NumValues = levels,
+                    NumNulls = nulls,
+                    NumRows = rows,
                     Encoding = encoding,
                     DefinitionLevelsByteLength = defBytes,
                     RepetitionLevelsByteLength = repBytes,
@@ -646,29 +726,18 @@ internal abstract class ColumnWriter : IDisposable
                 },
             };
         _pagesBy[(int)encoding]++;
-        _chunkLevels += _pageLevels;
-        _chunkNulls += _pageNulls;
-        _chunkRows += _pageRows;
-        _chunkUnencoded += unencoded;
-        _pageRows = _pageLevels = _pageNulls = 0;
-        ClearPage();
-        Submit(job);
-    }
-
-    /// <summary>Queues an encoded page for compression (a helper takes it when the budget allows) and keeps the queue short.</summary>
-    private void Submit(PageJob job)
-    {
-        job.Bound = (job.Seal is null ? 64 : 128) + PageCodecs.MaxCompressedLength(_settings.Codec, job.Raw.WrittenCount); // header (and modules)
-        _pages.Add(job);
-        _inFlightBound += job.Bound;
+        // The page's bound now that its encoding is known (never above the one it was queued with).
+        long valueBytes = job.Values is null ? 0 : dictionaryPage ? 1L + RleBitPackedEncoder.MaxBytes(count, bitWidth) : values.PlainBytes;
+        long bound = Math.Min(job.Bound, (job.Seal is null ? 64 : 128) + PageCodecs.MaxCompressedLength(_settings.Codec, checked((int)Math.Min(Array.MaxLength, job.Raw.WrittenCount + valueBytes))));
+        _inFlightBound += bound - job.Bound;
+        job.Bound = bound;
         if (_settings.Budget is { Max: > 1 } budget && budget.TryEnter()) job.Help(budget);
-        int keep = _settings.Budget is { Max: > 1 } ? MaxInFlight : 0;
-        while (_pages.Count - _committed > keep) CommitOldest();
     }
 
-    /// <summary>Compresses (or waits for) the oldest page in flight and adds it to the chunk.</summary>
+    /// <summary>Compresses (or waits for) the oldest page in flight and adds it to the chunk (laid out first when it was not).</summary>
     private void CommitOldest()
     {
+        if (_committed == _resolved) ResolveOldest();
         PageJob job = _pages[_committed++];
         _inFlightBound -= job.Bound;
         job.Complete();
@@ -836,21 +905,25 @@ internal abstract class ColumnWriter : IDisposable
     /// <summary>The bytes the open page's values take plainly encoded.</summary>
     protected abstract long PagePlainBytes { get; }
 
-    protected abstract void EncodePlain(IBufferWriter<byte> output);
+    /// <summary>
+    /// Takes the open page's values (with its bounds as far as gathered on the way) and opens an empty page.
+    /// </summary>
+    protected abstract PageValues TakePage();
 
-    /// <summary>Encodes the open page's values in <paramref name="encoding"/> (one the type takes: <see cref="ColumnSettings.Takes"/>).</summary>
-    protected abstract void EncodeAs(ParquetEncoding encoding, IBufferWriter<byte> output);
+    /// <summary>The open page's values (with its bounds as far as gathered on the way), left open: encoded and emptied in place.</summary>
+    protected abstract PageValues OpenPage();
 
-    protected abstract void ClearPage();
+    /// <summary>Whether the open page's values have anything to prepare beyond a dictionary (<see cref="PageValues.Prepares"/>).</summary>
+    protected virtual bool OpenPagePrepares => false;
 
-    /// <summary>Adds the page's values <paramref name="first"/> .. + indices' length to the dictionary and gives their indices.</summary>
-    protected virtual void MapToDictionary(Span<uint> indices, int first) => throw new NotSupportedException();
-
-    /// <summary>The values of the page judging the dictionary mapped before it is judged again.</summary>
-    private const int JudgeStep = 1024;
+    /// <summary>
+    /// Merges a page's dictionary into the chunk's, in order of first appearance, filling the page's
+    /// <see cref="PageValues.Remap"/> with each entry's index in the chunk's.
+    /// </summary>
+    protected virtual void MergeLocal(PageValues page) => throw new NotSupportedException();
 
     /// <summary>The bits of a dictionary index (none for one entry).</summary>
-    private int IndexWidth => DictionaryCount <= 1 ? 0 : 32 - BitOperations.LeadingZeroCount((uint)DictionaryCount - 1);
+    private int IndexWidth => PageValues.Width(DictionaryCount);
 
     protected virtual int DictionaryCount => 0;
 
@@ -862,18 +935,11 @@ internal abstract class ColumnWriter : IDisposable
     protected virtual void ClearDictionary() { }
 
     /// <summary>
-    /// Completes the open page's bounds before they are closed, for writers that gather them at the page's end;
-    /// <paramref name="dictionaryIndices"/> are the page's values as dictionary indices when the page is so encoded
-    /// (empty otherwise).
+    /// Closes a page's bounds (folding them into the chunk's, pages in order) and gives them as the page index stores
+    /// them: none for a page of <paramref name="values"/> 0; false when the page holds values an index cannot bound (a
+    /// type without order, NaNs, a bound that cannot be cut short). Without statistics nothing was gathered.
     /// </summary>
-    protected virtual void FinishPageBounds(ReadOnlySpan<uint> dictionaryIndices) { }
-
-    /// <summary>
-    /// Closes the open page's bounds (folding them into the chunk's) and gives them as the page index stores them:
-    /// none for a page of <paramref name="values"/> 0; false when the page holds values an index cannot bound (a type
-    /// without order, NaNs, a bound that cannot be cut short). Without statistics nothing was gathered.
-    /// </summary>
-    protected abstract bool ClosePageBounds(int values, out byte[]? min, out byte[]? max);
+    protected abstract bool ClosePageBounds(PageValues page, int values, out byte[]? min, out byte[]? max);
 
     /// <summary>Orders two bounds given by <see cref="ClosePageBounds"/>.</summary>
     protected abstract int CompareBounds(ReadOnlySpan<byte> a, ReadOnlySpan<byte> b);

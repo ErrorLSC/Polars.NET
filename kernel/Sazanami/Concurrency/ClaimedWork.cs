@@ -22,6 +22,9 @@ internal abstract class ClaimedWork
 
     public bool TryClaim() => Interlocked.CompareExchange(ref _state, 1, 0) == 0;
 
+    /// <summary>Whether the work is done (by whoever ran it); <see cref="Complete"/> then returns at once.</summary>
+    public bool IsDone => Volatile.Read(ref _state) == 2;
+
     /// <summary>Runs the work (once claimed).</summary>
     public void Run()
     {

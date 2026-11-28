@@ -10,12 +10,13 @@ using Kaminari.Seseragi.Files.Parquet.Thrift;
 namespace Kaminari.Seseragi.Files.Parquet.Writing;
 
 /// <summary>
-/// A data page encoded but not yet compressed: its levels and values (<see cref="Raw"/>; format 2 keeps the levels,
-/// the first <see cref="LevelsLength"/> bytes, uncompressed), and its header without sizes and checksum. Compressing
-/// it (<see cref="ClaimedWork.Run"/>) depends on nothing else, so any thread may: the column writer claims a page it needs and
-/// has not seen taken, or waits for the helper that took it. Bytes come out the same whichever thread compressed. A page
-/// of an encrypted column is sealed as it is compressed (Parquet modular encryption): its body becomes a module in
-/// place, its header a module of its own.
+/// A data page on its way: its levels (<see cref="Raw"/>; format 2 keeps them, the first <see cref="LevelsLength"/>
+/// bytes, uncompressed), its values (<see cref="Values"/>: prepared, then encoded after the levels as the page is
+/// compressed, unless encoded as it was laid out) and its header without sizes and checksum. Compressing it
+/// (<see cref="ClaimedWork.Run"/>) depends on nothing else once laid out, so any thread may: the column writer claims a
+/// page it needs and has not seen taken, or waits for the helper that took it. Bytes come out the same whichever thread
+/// ran it. A page of an encrypted column is sealed as it is compressed (Parquet modular encryption): its body becomes
+/// a module in place, its header a module of its own.
 /// </summary>
 internal sealed class PageJob(PageSettings settings) : ClaimedWork
 {
@@ -35,6 +36,36 @@ internal sealed class PageJob(PageSettings settings) : ClaimedWork
     /// <summary>The upper bound of the compressed page in the file (header included), before it is compressed.</summary>
     public long Bound { get; set; }
 
+    /// <summary>
+    /// The page's values, encoded after its levels as it is compressed (as the chunk dictionary's indices of
+    /// <see cref="BitWidth"/> bits, or plainly when that is -1), then given back to the column writer
+    /// (<see cref="Return"/>); null once encoded, or when they were encoded as the page was laid out.
+    /// </summary>
+    public PageValues? Values { get; set; }
+
+    public int BitWidth { get; set; } = -1;
+
+    /// <summary>Lets the page's values go once they are encoded (any thread).</summary>
+    public Action<PageValues>? Return { get; init; }
+
+    /// <summary>The values' work before the writer lays the page out (mapping them to a dictionary of their own, bounds).</summary>
+    public PagePreparation? Preparation { get; set; }
+
+    /// <summary>Whether the values are the column writer's open page, encoded as the page is laid out (never handed on).</summary>
+    public bool Inline { get; init; }
+
+    /// <summary>Whether this page judges the chunk's dictionary (the first holding values).</summary>
+    public bool Judges { get; init; }
+
+    /// <summary>Whether a page judged the chunk's dictionary before this one.</summary>
+    public bool AfterJudging { get; init; }
+
+    /// <summary>The bytes the page may add to the chunk's dictionary until it is laid out (its values plainly: at most).</summary>
+    public long DictionaryBound { get; set; }
+
+    /// <summary>The page's levels and rows, for its header.</summary>
+    public (int Levels, int Nulls, int Rows, int DefinitionBytes, int RepetitionBytes) Shape { get; set; }
+
     public byte[] HeaderBytes { get; private set; } = [];
 
     /// <summary>The compressed page (levels first in format 2), in native memory until <see cref="Release"/>.</summary>
@@ -50,6 +81,13 @@ internal sealed class PageJob(PageSettings settings) : ClaimedWork
 
     private void Compress()
     {
+        if (Values is { } pageValues)
+        {
+            if (BitWidth >= 0) pageValues.EncodeIndices(BitWidth, Raw);
+            else pageValues.EncodePlain(Raw);
+            Values = null;
+            Return?.Invoke(pageValues);
+        }
         ReadOnlySpan<byte> raw = Raw.WrittenSpan;
         bool v1 = Header.Type == PageType.DataPage;
         int levels = v1 ? 0 : LevelsLength;
@@ -96,6 +134,11 @@ internal sealed class PageJob(PageSettings settings) : ClaimedWork
     /// <summary>Returns the compressed body to the pool (after the page is in the file).</summary>
     public void Release()
     {
+        // Waited for when a helper runs them (they use the values and buffers), never run when none took them.
+        Preparation?.Drop();
+        Drop();
+        Values?.Dispose();
+        Values = null;
         Body.Dispose();
         Raw.Dispose();
         Seal?.Dispose();
