@@ -362,7 +362,30 @@ public sealed class CsvDatasetTests : IDisposable
         var schema = new Schema([new Field("x", Int64Type.Default, true), new Field("t", new TimestampType(TimeUnit.Microsecond, (string?)null), true)], null);
         using CsvDataset dataset = CsvDataset.Open(At("redo"), new CsvDatasetOptions { Schema = schema, FilePathColumn = "path" });
         long before = CsvReader.Redecoded;
-        string got = Show(dataset, new CsvReadOptions { MaxDegreeOfParallelism = 8, UnitBytes = 64, BatchSize = 7 });
+        // The consumer holds before the unit of the full timestamp (row 150) until a unit after it was decoded too,
+        // without the file's format (it guessed its own, dates alone): that unit is then decoded again, whatever the
+        // threads' timing.
+        string got;
+        using (CsvDatasetReader reader = dataset.OpenReader(new CsvReadOptions { MaxDegreeOfParallelism = 8, UnitBytes = 64, BatchSize = 7 }))
+        {
+            List<string> rows = [];
+            bool held = false;
+            foreach (RecordBatch batch in reader.ReadBatches())
+            {
+                long last;
+                using (batch)
+                {
+                    rows.AddRange(ArrowRender.Rows(batch));
+                    last = ((Int64Array)batch.Column(0)).GetValue(batch.Length - 1)!.Value;
+                }
+                if (!held && last >= 140)
+                {
+                    held = true;
+                    Assert.True(SpinWait.SpinUntil(() => reader.UnitsGuessing >= 2, TimeSpan.FromSeconds(60)), "no unit after the timestamp's was decoded ahead");
+                }
+            }
+            got = string.Join(" | ", [string.Join(",", reader.Schema.FieldsList.Select(f => $"{f.Name}:{Type(f.DataType)}")), .. rows]);
+        }
         Assert.True(CsvReader.Redecoded > before, "no chunk was decoded again");
         Assert.Equal(Show(dataset, new CsvReadOptions { MaxDegreeOfParallelism = 1 }), got);
         Assert.Contains($"\"{path}\"", got);

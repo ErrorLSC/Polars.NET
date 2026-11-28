@@ -83,6 +83,14 @@ public sealed class CsvDatasetReader : IDisposable, IAsyncDisposable
     /// <summary>The files whose rows the dataset filtered after decoding them (for tests).</summary>
     internal int FilesFilteredAfter => Volatile.Read(ref _filteredAfter);
 
+    private int _guessing;
+
+    /// <summary>
+    /// The units decoded while their file knew no format yet for a temporal column they hold values of (each guessing
+    /// its own: the consumer decodes such a unit again when the file's format, learned in order, is another).
+    /// </summary>
+    internal int UnitsGuessing => Volatile.Read(ref _guessing);
+
     /// <summary>The most requests to the store at once in the last read (0 when not bounded; for tests).</summary>
     internal int PeakRequests { get; private set; }
 
@@ -505,6 +513,7 @@ public sealed class CsvDatasetReader : IDisposable, IAsyncDisposable
             try
             {
                 decoded = slot.Reader.Decode(bytes, unit, long.MaxValue);
+                if (decoded.Guesses?.Any(static g => g.Group is not null || g.Unsure) == true) Interlocked.Increment(ref owner._guessing);
                 FileState state = slot.State;
                 if (decoded.Error is null && !state.CountOnly)
                 {
