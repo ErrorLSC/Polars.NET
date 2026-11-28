@@ -51,7 +51,42 @@ public sealed record ParquetColumnStatistics(byte[]? Min, byte[]? Max, long? Nul
 public sealed record ParquetColumnChunk(IReadOnlyList<string> Path, long ValueCount, ParquetColumnStatistics? Statistics);
 
 /// <summary>One row group.</summary>
-public sealed record ParquetRowGroup(long RowCount, IReadOnlyList<ParquetColumnChunk> Columns);
+public sealed record ParquetRowGroup(long RowCount, IReadOnlyList<ParquetColumnChunk> Columns)
+{
+    /// <summary>
+    /// The order the writer declares the rows of this row group sorted in (<c>sorting_columns</c>), its keys in order;
+    /// empty when it declares none, or none that names a column a row has one value of. A declaration says nothing
+    /// of the order across row groups (see <see cref="ParquetMetadata.FileOrder"/>), and most writers do not check it.
+    /// </summary>
+    public IReadOnlyList<ParquetSortingColumn> SortingColumns { get; init; } = [];
+}
+
+/// <summary>One key of an order rows are sorted in (Parquet's <c>SortingColumn</c>).</summary>
+/// <param name="Path">The path of the leaf column in the Parquet schema (top-level name first), as <see cref="ParquetColumnChunk.Path"/> names it.</param>
+/// <param name="Descending">Whether larger values come first.</param>
+/// <param name="NullsFirst">Whether nulls come before the values (else after them).</param>
+public sealed record ParquetSortingColumn(IReadOnlyList<string> Path, bool Descending = false, bool NullsFirst = false)
+{
+    /// <summary>A key on a top-level column.</summary>
+    public ParquetSortingColumn(string column, bool descending = false, bool nullsFirst = false) : this([column], descending, nullsFirst) { }
+
+    /// <summary>Whether both name the same column (path by path) in the same direction and null placement.</summary>
+    public bool Equals(ParquetSortingColumn? other) =>
+        other is not null && Descending == other.Descending && NullsFirst == other.NullsFirst && Path.SequenceEqual(other.Path);
+
+    /// <inheritdoc/>
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        foreach (string name in Path) hash.Add(name);
+        hash.Add(Descending);
+        hash.Add(NullsFirst);
+        return hash.ToHashCode();
+    }
+
+    /// <inheritdoc/>
+    public override string ToString() => $"{string.Join('.', Path)} {(Descending ? "DESC" : "ASC")} NULLS {(NullsFirst ? "FIRST" : "LAST")}";
+}
 
 /// <summary>
 /// The footer of a Parquet file (its <c>FileMetaData</c>): the schema, the row count and the statistics of every
@@ -69,6 +104,7 @@ public sealed class ParquetMetadata
 
     private IReadOnlyList<ParquetRowGroup>? _rowGroups;
     private IReadOnlyList<KeyValuePair<string, string?>>? _keyValues;
+    private IReadOnlyList<ParquetSortingColumn>? _fileOrder;
 
     /// <summary>The row groups (made from the footer on first use).</summary>
     public IReadOnlyList<ParquetRowGroup> RowGroups
@@ -76,6 +112,16 @@ public sealed class ParquetMetadata
         get => _rowGroups ??= Thrift is { } meta ? RowGroupsOf(meta) : [];
         init => _rowGroups = value;
     }
+
+    /// <summary>
+    /// The order the whole file's rows are sorted in, as far as the footer proves it: the longest prefix of the keys
+    /// every row group (holding rows) declares (<see cref="ParquetRowGroup.SortingColumns"/>) that the row groups also
+    /// follow each other in, by their statistics. Where the first key's values tie across a boundary, only that key
+    /// is proven; statistics missing, a float key that may hold NaN, or keys not alike prove nothing (empty). The
+    /// declarations themselves are believed, as every reader that uses them does (made from the footer on first use;
+    /// empty for a view built by hand).
+    /// </summary>
+    public IReadOnlyList<ParquetSortingColumn> FileOrder => _fileOrder ??= Thrift is { } meta ? Pruning.SortOrders.Proven(meta) : [];
 
     /// <summary>The application that wrote the file, when it says.</summary>
     public string? CreatedBy { get; init; }
@@ -195,6 +241,18 @@ public sealed class ParquetMetadata
     private static ParquetRowGroup[] RowGroupsOf(FileMetaData meta)
     {
         var rowGroups = new ParquetRowGroup[meta.RowGroups.Length];
+        Parquet.Schema.ParquetSchemaTree? tree = null;
+        if (meta.RowGroups.Any(g => g.SortingColumns is { Length: > 0 }))
+        {
+            try
+            {
+                tree = Parquet.Schema.SchemaShape.Of(meta).Tree;
+            }
+            catch (ParquetFormatException)
+            {
+                // a leaf of an unknown type: the declarations read as none (the read reports the type)
+            }
+        }
         for (int g = 0; g < rowGroups.Length; g++)
         {
             RowGroup group = meta.RowGroups[g];
@@ -211,7 +269,7 @@ public sealed class ParquetMetadata
                 Statistics? s = column.Statistics;
                 chunks[c] = new ParquetColumnChunk(column.PathInSchema, column.NumValues, s is null ? null : new(s.MinValue, s.MaxValue, s.NullCount));
             }
-            rowGroups[g] = new ParquetRowGroup(group.NumRows, chunks);
+            rowGroups[g] = new ParquetRowGroup(group.NumRows, chunks) { SortingColumns = tree is null ? [] : Pruning.SortOrders.Declared(group, tree) };
         }
         return rowGroups;
     }

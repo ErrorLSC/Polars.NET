@@ -171,8 +171,9 @@ internal sealed class FooterBuilder : IDisposable
     /// <summary>Writes the footer (<c>FileMetaData</c>, as <see cref="FileMetaData.Write"/> writes it); every row group holds <paramref name="columns"/> chunks.</summary>
     /// <param name="plaintextAlgorithm">An encrypted file's algorithm, kept in a plaintext footer.</param>
     /// <param name="metadataEncryptor">The encryptor of the chunk of (row group, column), for its <c>encrypted_column_metadata</c>.</param>
+    /// <param name="sorting">The sort order every row group declares, if any.</param>
     public void WriteFooter(ThriftCompactWriter w, SchemaElement[] schema, long rows, int columns, KeyValue[]? keyValues, string createdBy,
-        EncryptionAlgorithm? plaintextAlgorithm = null, Func<int, int, ColumnEncryptor?>? metadataEncryptor = null)
+        SortingColumn[]? sorting = null, EncryptionAlgorithm? plaintextAlgorithm = null, Func<int, int, ColumnEncryptor?>? metadataEncryptor = null)
     {
         w.BeginStruct();
         w.I32Field(1, 2); // version
@@ -193,6 +194,11 @@ internal sealed class FooterBuilder : IDisposable
             }
             w.I64Field(2, group.TotalByteSize);
             w.I64Field(3, group.NumRows);
+            if (sorting is not null)
+            {
+                w.BeginListField(4, ThriftType.Struct, sorting.Length);
+                foreach (SortingColumn s in sorting) s.Write(w);
+            }
             w.I64Field(5, group.FileOffset);
             w.I64Field(6, group.TotalCompressedSize);
             w.I16Field(7, (short)Math.Min(g, short.MaxValue)); // ordinal

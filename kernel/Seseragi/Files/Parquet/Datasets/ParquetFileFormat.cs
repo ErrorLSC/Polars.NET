@@ -35,7 +35,10 @@ internal sealed class ParquetFileFormat(ParquetWriteOptions options, bool takeBa
             BatchOwnership = _takes ? BatchOwnership.Writer : BatchOwnership.Caller,
             MaxDegreeOfParallelism = threads,
             SharedBudget = sideBySide ? new WorkBudget(threads) : null,
+            // Partition columns are not in the files, and constant in each: a key on one orders nothing there.
+            SortingColumns = options.SortingColumns is { } sorting ? [.. sorting.Where(k => schema.FieldsList.Any(f => f.Name == k.Path[0]))] : null,
         };
+        if (_options.SortingColumns is { Count: 0 }) _options = _options with { SortingColumns = null, VerifySortingColumns = false };
         if (sideBySide) _plan = ParquetWriter.WritePlan.Create(schema, _options);
     }
 

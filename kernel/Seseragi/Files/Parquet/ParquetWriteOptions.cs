@@ -91,6 +91,25 @@ public sealed record ParquetWriteOptions
     /// </summary>
     public IReadOnlyDictionary<string, ParquetColumnOptions>? Columns { get; init; }
 
+    /// <summary>
+    /// The order the rows are sorted in, declared in every row group (<c>sorting_columns</c>), its keys in order: each a
+    /// leaf column by its path in the Parquet schema (<c>["id"]</c>, <c>["s", "x"]</c> for a struct field), not inside a
+    /// list or a map, not INT96 or INTERVAL, none twice; refused otherwise when the writer is created. Readers that
+    /// use the declaration believe it (Polars marks the first key's column sorted, engines skip sorts): unless
+    /// <see cref="VerifySortingColumns"/> is on, the writer does not check it, as pyarrow and arrow-rs do not. A
+    /// declaration orders the rows within each row group. Null (the default) declares none.
+    /// </summary>
+    public IReadOnlyList<ParquetSortingColumn>? SortingColumns { get; init; }
+
+    /// <summary>
+    /// Whether the writer checks that the rows follow <see cref="SortingColumns"/>, each against the one before it
+    /// (from one batch to the next, until <see cref="ParquetWriter.EndRowGroup"/> starts over), values compared as
+    /// Arrow orders them (numbers by value, NaN above every number; strings and binary by their bytes; dictionary
+    /// values by their values). The first row out of order fails the write and gives the file up, naming the row,
+    /// the key and both values. Off by default.
+    /// </summary>
+    public bool VerifySortingColumns { get; init; }
+
     /// <summary>Whether every page carries the CRC32 of its bytes (as Spark writes).</summary>
     public bool WriteChecksums { get; init; } = true;
 
@@ -194,6 +213,17 @@ public sealed record ParquetWriteOptions
                     throw new ArgumentOutOfRangeException(nameof(Columns), bloom.MaxBytes, $"The Bloom filter of column '{path}' needs at least 32 bytes (one block).");
             }
         }
+        if (SortingColumns is { } sorting)
+        {
+            foreach (ParquetSortingColumn? key in sorting)
+            {
+                if (key is null) throw new ArgumentNullException(nameof(SortingColumns), "A sorting column is null.");
+                if (key.Path is null || key.Path.Count == 0 || key.Path.Any(string.IsNullOrEmpty))
+                    throw new ArgumentException("A sorting column needs a path of names (its leaf column's path in the Parquet schema).", nameof(SortingColumns));
+            }
+        }
+        if (VerifySortingColumns && SortingColumns is not { Count: > 0 })
+            throw new ArgumentException("VerifySortingColumns checks the order SortingColumns declares: declare one.", nameof(VerifySortingColumns));
         if (StoreArrowSchema && Metadata?.ContainsKey(Schema.ArrowMapping.ArrowSchemaKey) == true)
             throw new ArgumentException($"The metadata key '{Schema.ArrowMapping.ArrowSchemaKey}' is written by the writer while StoreArrowSchema is on.", nameof(Metadata));
     }

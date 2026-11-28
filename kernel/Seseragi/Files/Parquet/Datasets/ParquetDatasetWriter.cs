@@ -57,6 +57,12 @@ public sealed class ParquetDatasetWriter : IDisposable
         options.Writer.Validate();
         if (options.Writer.BatchOwnership != BatchOwnership.Caller)
             throw new ArgumentException("The files of a dataset take rows of the caller's batches: leave Writer.BatchOwnership as Caller.", nameof(options));
+        // A key on a partition column, constant in each file, leaves each file's declaration (ParquetFileFormat.Prepare).
+        foreach (ParquetSortingColumn key in options.Writer.SortingColumns ?? [])
+        {
+            if (!schema.FieldsList.Any(f => f.Name == key.Path[0]))
+                throw new ArgumentException($"Writer.SortingColumns names '{string.Join('.', key.Path)}', whose column '{key.Path[0]}' is no column of the schema.", nameof(options));
+        }
         return await DatasetWriting<ParquetWrittenFile>.CreateAsync(path, schema, options, new ParquetFileFormat(options.Writer),
             static f => new ParquetWrittenFile(f.Path, f.Rows, f.Bytes, f.Partition.Values, ((ParquetFooter)f.Footer!).Metadata), cancellationToken).ConfigureAwait(false);
     }

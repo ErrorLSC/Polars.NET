@@ -282,6 +282,26 @@ internal sealed class LeafDomain
         }
     }
 
+    /// <summary>The sign of <c>a - b</c> for two stored bounds; false when one does not decode or is NaN (then nothing is known).</summary>
+    internal bool TryCompareBounds(byte[] a, byte[] b, out int sign)
+    {
+        sign = 0;
+        switch (Kind)
+        {
+            case DomainKind.Integer:
+                if (!TryDecodeInteger(a, out Int128 x) || !TryDecodeInteger(b, out Int128 y)) return false;
+                sign = x.CompareTo(y);
+                return true;
+            case DomainKind.Floating:
+                if (!TryDecodeFloat(a, out double u) || !TryDecodeFloat(b, out double v) || double.IsNaN(u) || double.IsNaN(v)) return false;
+                sign = u < v ? -1 : u > v ? 1 : 0; // -0.0 equal to 0.0
+                return true;
+            default:
+                sign = Math.Sign(a.AsSpan().SequenceCompareTo(b));
+                return true;
+        }
+    }
+
     internal bool TryDecodeInteger(ReadOnlySpan<byte> b, out Int128 value)
     {
         value = default;

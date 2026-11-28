@@ -16,6 +16,7 @@ using Kaminari.Seseragi.Files.Parquet.Metadata;
 using Kaminari.Seseragi.Files.Parquet.Thrift;
 using Kaminari.Seseragi.Files.Parquet.Writing;
 using Kaminari.Sazanami.Concurrency;
+using Kaminari.Sazanami.Ordering;
 
 namespace Kaminari.Seseragi.Files.Parquet;
 
@@ -66,6 +67,8 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
     private byte[]? _footerBytes;       // once disposed with the footer neither taken nor parsed: its Thrift bytes
     private bool _footerTaken;
     private ParquetMetadata? _metadata;
+    private readonly SortingKeys? _sorting;       // the order every row group declares
+    private readonly OrderCheck? _orderCheck;     // checks the rows follow it (VerifySortingColumns)
 
     private ParquetWriter(Stream stream, WritePlan plan)
     {
@@ -78,6 +81,8 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
         _plans = plan.Columns;
         _columnSettings = plan.Settings;
         _keyValues = plan.KeyValues;
+        _sorting = plan.Sorting;
+        if (_sorting is not null && options.VerifySortingColumns) _orderCheck = new OrderCheck(_sorting.Order);
         _paths = [.. _plans.Select(p => string.Join('.', p.Path))];
         if (options.Encryption is { } encryption)
         {
@@ -114,6 +119,7 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
                 Budget: Budget = options.SharedBudget ?? new WorkBudget(options.MaxDegreeOfParallelism));
             Elements = [new SchemaElement { Name = "schema", NumChildren = schema.FieldsList.Count }, .. elements];
             Columns = plans;
+            Sorting = SortingKeys.Of(schema, Elements, options);
             ParquetColumnOptions?[] columns = ColumnSettings.Resolve(plans, options.Columns);
             Settings = [.. columns.Select(column => column is not null
                 ? settings with { Dictionary = column.Dictionary ?? options.Dictionary, Encoding = column.Encoding, Bloom = column.BloomFilter }
@@ -143,6 +149,8 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
         /// <summary>The page settings of each leaf column.</summary>
         public PageSettings[] Settings { get; }
         public KeyValue[]? KeyValues { get; }
+        /// <summary>The sort order every row group declares; null for none.</summary>
+        public SortingKeys? Sorting { get; }
     }
 
     /// <summary>A set of column writers (and the shredders of nested columns): one row group being encoded.</summary>
@@ -181,6 +189,7 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
         }
         FreeBloomFilters();
         _footer.Dispose();
+        _orderCheck?.Dispose();
     }
 
     /// <summary>Frees the bitsets of the Bloom filters taken from the chunks laid out (written, or the file given up).</summary>
@@ -690,6 +699,7 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
         CheckBatch(batch, start, count);
         try
         {
+            CheckOrder(batch, start, count);
             long bytes = logical ? ArrowSizes.LogicalBytes(batch) : 0;
             int offset = start, end = start + count;
             while (offset < end)
@@ -819,6 +829,7 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
         CheckBatch(batch, 0, batch.Length);
         try
         {
+            CheckOrder(batch, 0, batch.Length);
             long bytes = ArrowSizes.LogicalBytes(batch);
             int offset = 0;
             while (offset < batch.Length)
@@ -1034,6 +1045,32 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
     /// The batch's columns have the writer's types and lengths, and no null where the schema says non-nullable, at
     /// any depth (checked before anything is written).
     /// </summary>
+    /// <summary>
+    /// With <see cref="ParquetWriteOptions.VerifySortingColumns"/>, rows <paramref name="start"/> .. +<paramref name="count"/>
+    /// follow the declared order after the rows before them (the caller fails the file when they do not).
+    /// </summary>
+    /// <exception cref="InvalidDataException">A row sorts before the one above it.</exception>
+    private void CheckOrder(RecordBatch batch, int start, int count)
+    {
+        if (_orderCheck is not { } check) return;
+        SortingKeys sorting = _sorting!;
+        long before = _totalRowsChecked;
+        Span<OrderColumn> keys = new OrderColumn[sorting.Columns.Length];
+        for (int k = 0; k < keys.Length; k++) keys[k] = new OrderColumn(batch.Column(sorting.Columns[k].Column), sorting.Columns[k].Fields);
+        if (!check.Check(keys, start, count, _budget, out OrderBreak broken))
+        {
+            SortKey key = sorting.Order[broken.Key];
+            string order = $"{(key.Descending ? "descending" : "ascending")}, nulls {(key.NullsFirst ? "first" : "last")}";
+            string tied = broken.Key == 0 ? "" : $" (the keys before it tie: {string.Join(", ", sorting.Names[..broken.Key].Select(n => $"'{n}'"))})";
+            throw new InvalidDataException($"Row {before + broken.Row} sorts before the row above it by '{sorting.Names[broken.Key]}'{tied}: {broken.Value} after "
+                                           + $"{broken.Previous}, while ParquetWriteOptions.SortingColumns declares '{sorting.Names[broken.Key]}' {order}. "
+                                           + "Sort the rows first, or leave the key out of SortingColumns; the file was given up.");
+        }
+    }
+
+    /// <summary>The rows checked before the order check's last start (an explicit row group end): rows count from the file's first.</summary>
+    private long _totalRowsChecked;
+
     /// <summary>The batch fits the writer schema, and rows <paramref name="start"/> .. +<paramref name="count"/> its nullability.</summary>
     private void CheckBatch(RecordBatch batch, int start, int count)
     {
@@ -1120,6 +1157,12 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
     private async ValueTask EndRowGroupCoreAsync(bool useAsync, CancellationToken ct)
     {
         CheckWritable();
+        if (_orderCheck is { } check)
+        {
+            // The declaration orders rows within a row group: the next one starts over.
+            _totalRowsChecked += check.Rows;
+            check.Restart();
+        }
         try
         {
             await EndOpenRowGroupAsync(useAsync, ct).ConfigureAwait(false);
@@ -1394,7 +1437,7 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
             // The footer's bytes go to native memory (the scratch is copied out before any await).
             ThriftCompactWriter thrift = ThriftCompactWriter.ThreadScratch();
             FileEncryptor? encryptor = _encryptor;
-            _footer.WriteFooter(thrift, _elements, _totalRows, _columns.Length, _keyValues, CreatedBy,
+            _footer.WriteFooter(thrift, _elements, _totalRows, _columns.Length, _keyValues, CreatedBy, _sorting?.Thrift,
                 encryptor is { PlaintextFooter: true } ? encryptor.Algorithm : null,
                 encryptor is null ? null : (g, c) => encryptor.ForChunk(_paths[c], g, c));
             // An encrypted file's plaintext footer is signed (PAR1), an encrypted one follows its crypto metadata (PARE).

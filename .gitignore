@@ -30,6 +30,7 @@ Thumbs.db
 !tests/Seseragi.Files.Tests/TestData/csv-write/*.csv
 !tests/Seseragi.Files.Tests/TestData/parquet-fuzz/*.parquet
 !tests/Seseragi.Files.Tests/TestData/parquet-pushdown/*.parquet
+!tests/Seseragi.Files.Tests/TestData/parquet-sorting/*.parquet
 # Map dtype fixtures written by Python Polars 2.2 / pyarrow (make_map_fixtures.py).
 !tests/Polars.CSharp.Tests/TestData/map/*.parquet
 Polars.Benchmarks/Data/
