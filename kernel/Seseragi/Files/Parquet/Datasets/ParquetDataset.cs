@@ -66,6 +66,11 @@ public sealed class ParquetDataset : IDisposable, IAsyncDisposable
             if (fields.Any(f => f.Name == path)) throw new ArgumentException($"The file path column '{path}' has the name of a column of the files.", nameof(options));
             fields.Add(new Field(path, StringViewType.Default, nullable: false));
         }
+        if (options.FileRowIndexColumn is { } position)
+        {
+            if (fields.Any(f => f.Name == position)) throw new ArgumentException($"The file row index column '{position}' has the name of a column of the files.", nameof(options));
+            fields.Add(new Field(position, Int64Type.Default, nullable: false));
+        }
         Schema = new Apache.Arrow.Schema(fields, fileSchema.Metadata);
         PartitionSchema = partitions is null ? null : new Apache.Arrow.Schema([.. Enumerable.Range(0, partitions.Fields.Length).Select(p => PartitionField(p, views: true))], null);
     }
@@ -146,6 +151,7 @@ public sealed class ParquetDataset : IDisposable, IAsyncDisposable
         }
         if (Options.FilePathColumn is { } file && !fields.Any(f => f.Name == file))
             fields.Add(new Field(file, options.ViewTypes ? StringViewType.Default : StringType.Default, nullable: false));
+        if (Options.FileRowIndexColumn is { } position && !fields.Any(f => f.Name == position)) fields.Add(new Field(position, Int64Type.Default, nullable: false));
         return new Apache.Arrow.Schema(fields, null);
     }
 

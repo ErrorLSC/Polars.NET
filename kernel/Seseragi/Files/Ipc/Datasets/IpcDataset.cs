@@ -47,6 +47,11 @@ public sealed class IpcDataset : IDisposable, IAsyncDisposable
             if (fields.Any(f => f.Name == path)) throw new ArgumentException($"The file path column '{path}' has the name of a column of the files.", nameof(options));
             fields.Add(new Field(path, StringViewType.Default, nullable: false));
         }
+        if (options.FileRowIndexColumn is { } position)
+        {
+            if (fields.Any(f => f.Name == position)) throw new ArgumentException($"The file row index column '{position}' has the name of a column of the files.", nameof(options));
+            fields.Add(new Field(position, Int64Type.Default, nullable: false));
+        }
         Schema = new Schema(fields, fileSchema.Metadata);
         PartitionSchema = partitions is null ? null : new Schema([.. Enumerable.Range(0, partitions.Fields.Length).Select(p => PartitionField(p, views: true))], null);
     }
@@ -166,6 +171,7 @@ public sealed class IpcDataset : IDisposable, IAsyncDisposable
             if (FileSchema.GetFieldIndex(Partitions!.Fields[p].Name) < 0) fields.Add(PartitionField(p, views: true));
         }
         if (Options.FilePathColumn is { } file && !fields.Any(f => f.Name == file)) fields.Add(new Field(file, StringViewType.Default, nullable: false));
+        if (Options.FileRowIndexColumn is { } position && !fields.Any(f => f.Name == position)) fields.Add(new Field(position, Int64Type.Default, nullable: false));
         return new Schema(fields, null);
     }
 

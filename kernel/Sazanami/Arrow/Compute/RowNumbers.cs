@@ -55,6 +55,18 @@ internal static class RowNumbers
         return builder.ExportArray();
     }
 
+    /// <summary>A copy of <paramref name="numbers"/> (in native memory of its own), <paramref name="by"/> added to each.</summary>
+    public static IArrowArray Shifted(IArrowArray numbers, long by)
+    {
+        var array = (Int64Array)numbers;
+        using var builder = new NativeFixedWidthBuilder<long>(Int64Type.Default);
+        Span<long> values = builder.AppendSlots(array.Length);
+        array.Values.CopyTo(values);
+        IArrowArray copy = builder.ExportArray();
+        Shift(copy, by);
+        return copy;
+    }
+
     /// <summary>
     /// Adds <paramref name="by"/> to every number of <paramref name="numbers"/> in place: an array made here (or a
     /// filtered copy of one) that its caller alone holds; numbers known relative to a start learned later.

@@ -39,6 +39,8 @@ namespace Kaminari.Seseragi.Files.Ipc;
 /// were one (the numbers of each file follow the previous files' rows, rows of files left out included: their batches'
 /// messages are read for their row counts): the first column.</item>
 /// <item><see cref="IpcReadOptions.MaxRows"/> counts the rows delivered across the files.</item>
+/// <item><see cref="DatasetOptions.FileRowIndexColumn"/> numbers each file's rows from 0 (before filters): the last
+/// column; conjuncts over it alone filter the rows delivered; files left out are not read for it.</item>
 /// </list>
 /// Errors in a file name it.
 /// </remarks>
@@ -48,7 +50,8 @@ public sealed class IpcDatasetReader : IDisposable, IAsyncDisposable
     private readonly IpcReadOptions _options;
     private readonly DatasetShape _shape; // the columns, the filter's split and the batches' conversion
     private readonly bool[] _read;        // the files a filter over partition columns leaves
-    private readonly bool _indexed;       // rows numbered: batches converted by the consumer, after their numbers
+    private readonly bool _indexed;       // the row index across the files asked: the files left out are counted
+    private readonly bool _numbered;      // rows numbered (row index, file row index): batches converted by the consumer, after their numbers
     private int _filteredAfter;
 
     internal IpcDatasetReader(IpcDataset dataset, IpcReadOptions options)
@@ -62,6 +65,7 @@ public sealed class IpcDatasetReader : IDisposable, IAsyncDisposable
             PathOf, static (message, inner) => new IpcFormatException(message, inner));
         _read = _shape.Read;
         _indexed = options.RowIndexColumn is not null;
+        _numbered = _shape.NumbersColumn is not null;
         Schema = _shape.Output;
         FiltersExactly = _shape.FiltersExactly;
     }
@@ -144,12 +148,15 @@ public sealed class IpcDatasetReader : IDisposable, IAsyncDisposable
                 long? left = _options.MaxRows;
                 using DictionaryUnifier? windowed = _shape.NewUnifier(); // per reading: values numbered as they come
                 long next = 0; // the rows before the next unit, across the files (the row index)
+                int file = -1;
+                long fileStart = 0; // the rows before the file's first, across the files
                 while (left != 0 && await window.NextAsync().ConfigureAwait(false) is { } taken)
                 {
                     try
                     {
+                        if (taken.File != file) (file, fileStart) = (taken.File, next);
                         Output output = taken.Failure is null ? taken : await RedoAsync(taken, left, useAsync, ct).ConfigureAwait(false);
-                        RecordBatch? delivered = Deliver(output, ref next, left);
+                        RecordBatch? delivered = Deliver(output, ref next, left, fileStart);
                         // A stream's dictionaries no later batch of the file needs are let go (units come in order).
                         if (taken.Unit >= 0) taken.Plan!.Reader.TrimDictionaries(taken.Unit);
                         if (delivered is { } batch) yield return _shape.Cut(batch, ref left, windowed);
@@ -183,13 +190,14 @@ public sealed class IpcDatasetReader : IDisposable, IAsyncDisposable
                     row += await Named(i, file.RowCountAsync(useAsync, ct)).ConfigureAwait(false);
                     continue;
                 }
+                long fileStart = row;
                 using FilePlan plan = Plan(file, i);
                 await Named(i, plan.Reader.PrepareAsync(useAsync, ct)).ConfigureAwait(false);
                 for (int b = 0; remaining != 0 && await Named(i, file.HasBatchAsync(b, useAsync, ct)).ConfigureAwait(false); b++)
                 {
                     var (message, body) = await Named(i, plan.Reader.FetchAsync(b, useAsync, ct)).ConfigureAwait(false);
                     IpcDecoded decoded = Decode(plan, i, b, message, body, plan.FilterAfter ? long.MaxValue : remaining ?? long.MaxValue);
-                    RecordBatch? delivered = Deliver(new Output(plan, i, decoded, null, 0), ref row, remaining);
+                    RecordBatch? delivered = Deliver(new Output(plan, i, decoded, null, 0), ref row, remaining, fileStart);
                     plan.Reader.TrimDictionaries(b);
                     if (delivered is { } batch) yield return _shape.Cut(batch, ref remaining, unifier);
                 }
@@ -259,6 +267,7 @@ public sealed class IpcDatasetReader : IDisposable, IAsyncDisposable
                 Columns = columns.Lists[after ? 1 : 0].Columns,
                 Filter = filter,
                 MaxRows = null,
+                RowIndexColumn = _shape.NumbersColumn,
                 RowIndexOffset = 0,
             });
         }
@@ -304,14 +313,15 @@ public sealed class IpcDatasetReader : IDisposable, IAsyncDisposable
     }
 
     /// <summary>
-    /// A unit's batch in the dataset's schema, numbered from <paramref name="next"/> (moved past the unit's rows); null
-    /// when it has none (a filter kept none, or the unit is a file not read). Called in order, on the consumer.
+    /// A unit's batch in the dataset's schema, numbered from <paramref name="next"/> (moved past the unit's rows; its
+    /// file's rows from <paramref name="fileStart"/>, the rows before the file); null when it has none (a filter kept
+    /// none, or the unit is a file not read). Called in order, on the consumer.
     /// </summary>
     /// <remarks>
     /// Rows past <paramref name="left"/> (those still wanted) are not converted unless the dataset filters after
     /// converting: a value that cannot be converted beyond a row limit is never met, as on the one-thread path.
     /// </remarks>
-    private RecordBatch? Deliver(Output output, ref long next, long? left)
+    private RecordBatch? Deliver(Output output, ref long next, long? left, long fileStart)
     {
         if (output.Raw is not { } raw)
         {
@@ -331,7 +341,9 @@ public sealed class IpcDatasetReader : IDisposable, IAsyncDisposable
             int rows = (int)wanted;
             batch = new RecordBatch(batch.Schema, [.. batch.Arrays.Select(a => ArrowArrayFactory.Slice(a, 0, rows))], rows);
         }
-        return _shape.Convert(batch, plan.Converted, plan.FilterAfter, output.File);
+        return _shape.Convert(batch, plan.Converted, plan.FilterAfter, output.File) is { } converted
+            ? _shape.Number(converted, -fileStart, 0, plan.FilterAfter)
+            : null;
     }
 
     /// <summary>
@@ -359,7 +371,7 @@ public sealed class IpcDatasetReader : IDisposable, IAsyncDisposable
     /// </summary>
     private Output Finish(FilePlan plan, int file, int unit, IpcDecoded decoded)
     {
-        if (_indexed) return new Output(plan, file, decoded, null, 0, unit);
+        if (_numbered) return new Output(plan, file, decoded, null, 0, unit);
         long unused = 0;
         RecordBatch batch = plan.Reader.Deliver(decoded, ref unused);
         if (batch.Length == 0 && plan.Reader.Filters)

@@ -1,3 +1,4 @@
+using Kaminari.Sazanami.Rows;
 using System.Runtime.CompilerServices;
 using Apache.Arrow;
 using Kaminari.Sazanami.Arrow.Compute;
@@ -42,6 +43,9 @@ namespace Kaminari.Seseragi.Files.Parquet;
 /// they were one (the numbers of each file follow the previous files' row counts, rows of files left out included):
 /// the first column.</item>
 /// <item><see cref="ParquetReadOptions.MaxRows"/> counts the rows delivered across the files.</item>
+/// <item><see cref="DatasetOptions.FileRowIndexColumn"/> numbers each file's rows from 0 (their positions, before
+/// filters and the rows a file's selection leaves out): the last column. Conjuncts over it alone select a file's rows
+/// before they are read where their shapes allow, else filter the rows after; files left out are not opened for it.</item>
 /// <item><see cref="ParquetReadOptions.RowGroups"/> and <see cref="ParquetReadOptions.Rows"/> number per file: they
 /// are refused (rows are selected per file by <see cref="ParquetDatasetFile.Rows"/>).</item>
 /// </list>
@@ -178,7 +182,7 @@ public sealed class ParquetDatasetReader : IDisposable, IAsyncDisposable
                     using IEnumerator<RecordBatch> batches = plan.Reader.ReadBatches().GetEnumerator();
                     while (remaining != 0 && Next(batches, i) is { } batch)
                     {
-                        if (_shape.Convert(batch, plan.Converted, plan.FilterAfter, i) is { } done) yield return _shape.Cut(done, ref remaining, unifier);
+                        if (Delivered(batch, plan, i) is { } done) yield return _shape.Cut(done, ref remaining, unifier);
                     }
                 }
                 before += RowCount(file);
@@ -215,7 +219,7 @@ public sealed class ParquetDatasetReader : IDisposable, IAsyncDisposable
                     await using IAsyncEnumerator<RecordBatch> batches = plan.Reader.ReadBatchesAsync(cancellationToken).GetAsyncEnumerator(cancellationToken);
                     while (remaining != 0 && await NextAsync(batches, i).ConfigureAwait(false) is { } batch)
                     {
-                        if (_shape.Convert(batch, plan.Converted, plan.FilterAfter, i) is { } done) yield return _shape.Cut(done, ref remaining, unifier);
+                        if (Delivered(batch, plan, i) is { } done) yield return _shape.Cut(done, ref remaining, unifier);
                     }
                 }
                 before += RowCount(file);
@@ -325,7 +329,7 @@ public sealed class ParquetDatasetReader : IDisposable, IAsyncDisposable
 
     private async ValueTask<long> CountRowsAsync(bool useAsync, CancellationToken cancellationToken)
     {
-        if (_shape.RowFilter is { } filter) return await CountReadAsync(filter, useAsync, cancellationToken).ConfigureAwait(false);
+        if ((_shape.RowFilter ?? _shape.PositionFilter) is { } filter) return await CountReadAsync(filter, useAsync, cancellationToken).ConfigureAwait(false);
         IReadOnlyList<ParquetDatasetFile> files = _dataset.Files;
         ParquetDatasetFile[] all = [.. files];
         var footers = new ParquetMetadata?[files.Count];
@@ -407,9 +411,12 @@ public sealed class ParquetDatasetReader : IDisposable, IAsyncDisposable
     /// How a file is read: its reader, and per column of the batches (and per column the dataset's filter reads
     /// after converting) the reader's column it comes from (-1: the file lacks it, nulls) and the conversion.
     /// </summary>
-    private sealed class FilePlan(ParquetReader reader, DatasetShape.Converted converted, bool filterAfter) : IDisposable
+    private sealed class FilePlan(ParquetReader reader, DatasetShape.Converted converted, bool filterAfter, long before) : IDisposable
     {
         public ParquetReader Reader { get; } = reader;
+
+        /// <summary>The rows of the files before it: the reader's numbers start there (the row index's).</summary>
+        public long Before { get; } = before;
 
         /// <summary>How the reader's columns convert: per selected column from files, per column the dataset's filter reads.</summary>
         public DatasetShape.Converted Converted { get; } = converted;
@@ -421,6 +428,13 @@ public sealed class ParquetDatasetReader : IDisposable, IAsyncDisposable
     }
 
     /// <summary>
+    /// A file's batch as the dataset delivers it: converted, numbered (the reader's numbers count from the rows of the
+    /// files before it), filtered by the rows' numbers in the file unless its reader read only the rows they keep.
+    /// </summary>
+    private RecordBatch? Delivered(RecordBatch batch, FilePlan plan, int index) =>
+        _shape.Convert(batch, plan.Converted, plan.FilterAfter, index) is { } done ? _shape.Number(done, -plan.Before, 0, plan.FilterAfter) : null;
+
+    /// <summary>
     /// The plan of a file: its rows numbered after <paramref name="before"/> rows, up to <paramref name="remaining"/>;
     /// its reader on the dataset's threads and buffers when <paramref name="shared"/> is given.
     /// </summary>
@@ -428,16 +442,24 @@ public sealed class ParquetDatasetReader : IDisposable, IAsyncDisposable
     {
         string path = PathOf(index);
         ShapePlan shape = ShapePlanOf(file, path, index);
-        var (fileFilter, complete) = _shape.FileFilter(index, shape.Missing, shape.Dropped, shape.Has);
+        // The rows to read: those selected with the file, and those the conjuncts over the file row index keep.
+        RowRanges? rows = _dataset.Files[index].Rows;
+        bool positionsSelected = false;
+        if (_shape.PositionRows(RowCount(file), out bool exact) is { } positions)
+        {
+            rows = rows is null ? positions : rows.Intersect(positions);
+            positionsSelected = exact;
+        }
+        var (fileFilter, complete) = _shape.FileFilter(index, shape.Missing, shape.Dropped, shape.Has, positionsSelected);
 
         bool after = FiltersExactly && _shape.FiltersAfter && !complete;
-        ParquetReader reader = Open(file, index, before, after ? null : remaining, shape, fileFilter, after, shared);
+        ParquetReader reader = Open(file, index, before, after ? null : remaining, shape, fileFilter, after, rows, shared);
         if (FiltersExactly && _shape.FiltersAfter && !after && !reader.FiltersExactly)
         {
             // The file's filtering is not exact: read again with what the dataset's filter needs.
             reader.Dispose();
             after = true;
-            reader = Open(file, index, before, null, shape, fileFilter, after, shared);
+            reader = Open(file, index, before, null, shape, fileFilter, after, rows, shared);
         }
         try
         {
@@ -445,7 +467,7 @@ public sealed class ParquetDatasetReader : IDisposable, IAsyncDisposable
             DatasetShape.Converted converted = Volatile.Read(ref shape.Converted[variant]) ?? _shape.Conversions(reader.Schema, after, path, index);
             Volatile.Write(ref shape.Converted[variant], converted); // the same for every file of the shape (a file's own plan: its own)
             if (after) Interlocked.Increment(ref _filteredAfter);
-            return new FilePlan(reader, converted, after);
+            return new FilePlan(reader, converted, after, before);
         }
         catch
         {
@@ -529,7 +551,8 @@ public sealed class ParquetDatasetReader : IDisposable, IAsyncDisposable
     }
 
     /// <summary>The file's reader: the columns read, and with <paramref name="after"/> the columns the dataset's filter reads, whole.</summary>
-    private ParquetReader Open(ParquetFile file, int index, long before, long? remaining, ShapePlan shape, ScalarExpr? filter, bool after, ReadBudget? shared)
+    private ParquetReader Open(ParquetFile file, int index, long before, long? remaining, ShapePlan shape, ScalarExpr? filter, bool after, RowRanges? rows,
+        ReadBudget? shared)
     {
         int variant = after ? 1 : 0;
         var (columns, paths) = shape.Lists[variant];
@@ -539,7 +562,8 @@ public sealed class ParquetDatasetReader : IDisposable, IAsyncDisposable
             {
                 Columns = columns,
                 ColumnPaths = paths,
-                Rows = _dataset.Files[index].Rows,
+                Rows = rows,
+                RowIndexColumn = _shape.NumbersColumn,
                 RowIndexOffset = before,
                 MaxRows = remaining,
                 Filter = filter,
@@ -793,7 +817,7 @@ public sealed class ParquetDatasetReader : IDisposable, IAsyncDisposable
             {
                 RecordBatch batch = decoded[b];
                 decoded[b] = null!;
-                if (_shape.Convert(batch, slot.Plan.Converted, slot.Plan.FilterAfter, slot.Index) is { } done) converted.Add(done);
+                if (Delivered(batch, slot.Plan, slot.Index) is { } done) converted.Add(done);
             }
             return new UnitBatches([.. converted]);
         }

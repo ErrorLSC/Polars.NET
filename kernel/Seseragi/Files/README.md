@@ -96,7 +96,10 @@ more for stores other than local files and memory, so that the files after one w
 read), columns converted and filtered on those threads; requests to such stores are bounded apart
 (`MaxRequestsInFlight`, those of the files read first let in first). With one thread, file after file on the
 caller's from local files and memory, and from other stores fetched ahead as with several, decoded on one. The row index numbers rows across files and comes first, `MaxRows` counts
-across files, `FilePathColumn` adds each row's file; `RowGroups` and `Rows` (per-file numbers) are refused. Errors
+across files, `FilePathColumn` adds each row's file and `FileRowIndexColumn` (every format) each row's number in its
+own file (from 0, before filters and deletion vectors, as Iceberg's `_pos`): filters over it select a Parquet file's
+rows before they are read (comparisons, `In`, their `And`/`Or`/`Not`), other shapes and formats filter after, and
+files a partition filter leaves out are never opened for it; `RowGroups` and `Rows` (per-file numbers) are refused. Errors
 name their file and surface after the rows of the files before it. Rows come typed too
 (`ParquetDataset.OpenReader<T>`, `ParquetDatasetReader<T>`, `ParquetDataset.ReadList<T>`): members map columns and
 partitions by name, a `where` predicate is pushed down (conjuncts over partitions and the file path decide the files

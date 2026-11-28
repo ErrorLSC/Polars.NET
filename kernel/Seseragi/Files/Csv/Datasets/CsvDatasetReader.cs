@@ -32,6 +32,8 @@ namespace Kaminari.Seseragi.Files.Csv;
 /// <see cref="CsvReadOptions.RowIndexOffset"/>, in the order listed, as if they were one (the numbers of each file follow
 /// the previous files' records, those of files left out included: their records are read and counted, so an error in
 /// them fails the read): the first column.</item>
+/// <item><see cref="DatasetOptions.FileRowIndexColumn"/> numbers each file's rows from 0 (before filters): the last
+/// column; conjuncts over it alone filter the rows delivered; files left out are not read for it.</item>
 /// <item><see cref="CsvReadOptions.MaxRows"/> counts the rows delivered across the files.</item>
 /// </list>
 /// Errors in a file name it, and the row and line in it.
@@ -169,6 +171,9 @@ public sealed class CsvDatasetReader : IDisposable, IAsyncDisposable
                         }
                         if (raw) batch = _shape.Convert(batch!, state.Converted!, state.After, file);
                         if (batch is null) continue;
+                        // Numbered from the row number of the file's first record (the delivery's).
+                        batch = _shape.Number(batch, -before, 0, state.After);
+                        if (batch is null) continue;
                         yield return _shape.Cut(batch, ref left, null);
                     }
                     delivery.Done(unit);
@@ -217,7 +222,7 @@ public sealed class CsvDatasetReader : IDisposable, IAsyncDisposable
         Filter = null,
         FilterRows = _options.FilterRows && !state.CountOnly,
         MaxRows = null,
-        RowIndexColumn = state.CountOnly ? null : _options.RowIndexColumn,
+        RowIndexColumn = state.CountOnly ? null : _shape.NumbersColumn,
         RowIndexOffset = 0,
         IgnoreErrors = _options.IgnoreErrors,
         BatchSize = _options.BatchSize,

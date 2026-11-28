@@ -23,6 +23,17 @@ public abstract record DatasetOptions
     public string? FilePathColumn { get; init; }
 
     /// <summary>
+    /// The name of an Int64 column appended to the batches (after <see cref="FilePathColumn"/>), holding each row's
+    /// number in its own file: from 0, as the file's rows come before any filter and before the rows a file's selection
+    /// (a deletion vector's complement) leaves out, so that a row keeps its position (Iceberg's <c>_pos</c>, Spark's
+    /// <c>_metadata.row_index</c>, DuckDB's <c>file_row_number</c>). Filters may read it: comparisons with integers
+    /// (and their <c>And</c>, <c>Or</c>, <c>Not</c>, <c>In</c>) select Parquet files' rows before they are read; any
+    /// filter on it filters the rows delivered when rows are filtered. A conjunct reading it and other columns too is
+    /// refused when rows are filtered. Null: none.
+    /// </summary>
+    public string? FileRowIndexColumn { get; init; }
+
+    /// <summary>
     /// Whether paths with <c>*</c>, <c>?</c> or <c>[</c> are globs (the default); false reads them as names. HTTP(S)
     /// URLs are never globs.
     /// </summary>
@@ -139,6 +150,9 @@ public abstract record DatasetOptions
         }
         foreach (ColumnDefault entry in Defaults ?? []) ColumnDefaults.CheckPath(entry, $"{Name}.Defaults");
         if (FilePathColumn is "") throw new ArgumentException("The file path column needs a name.", nameof(FilePathColumn));
+        if (FileRowIndexColumn is "") throw new ArgumentException("The file row index column needs a name.", nameof(FileRowIndexColumn));
+        if (FileRowIndexColumn is not null && FileRowIndexColumn == FilePathColumn)
+            throw new ArgumentException("The file row index column and the file path column need names of their own.", nameof(FileRowIndexColumn));
         if (IgnorePrefixes?.Any(string.IsNullOrEmpty) == true)
             throw new ArgumentException("A prefix of files to leave out is empty (it would leave out every file).", nameof(IgnorePrefixes));
     }

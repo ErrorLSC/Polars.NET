@@ -47,6 +47,11 @@ public sealed class CsvDataset : IDisposable, IAsyncDisposable
             if (fields.Any(f => f.Name == path)) throw new ArgumentException($"The file path column '{path}' has the name of a column of the files.", nameof(options));
             fields.Add(new Field(path, StringViewType.Default, nullable: false));
         }
+        if (options.FileRowIndexColumn is { } position)
+        {
+            if (fields.Any(f => f.Name == position)) throw new ArgumentException($"The file row index column '{position}' has the name of a column of the files.", nameof(options));
+            fields.Add(new Field(position, Int64Type.Default, nullable: false));
+        }
         Schema = new Schema(fields, fileSchema.Metadata);
         PartitionSchema = partitions is null ? null : new Schema([.. Enumerable.Range(0, partitions.Fields.Length).Select(p => PartitionField(p, views: true))], null);
     }
@@ -165,12 +170,13 @@ public sealed class CsvDataset : IDisposable, IAsyncDisposable
     /// <summary>
     /// The dataset over the same files whose columns from files are <paramref name="rows"/>' (the columns typed rows read,
     /// nothing inferred, matched to the files' headers by name in any case, other columns of the files passed over), but
-    /// those a partition column names (ignoring case: the paths give them).
+    /// those a partition column names (ignoring case: the paths give them) and the file path and file row index columns.
     /// </summary>
     internal CsvDataset Typed(Schema rows, bool? allowMissingColumns = null)
     {
         HashSet<string> partitions = new(Partitions?.Fields.Select(f => f.Name) ?? [], StringComparer.OrdinalIgnoreCase);
-        var schema = new Schema([.. rows.FieldsList.Where(f => !partitions.Contains(f.Name))
+        // Members the dataset fills itself (the file path, the file row index) are not the files' columns either.
+        var schema = new Schema([.. rows.FieldsList.Where(f => !partitions.Contains(f.Name) && f.Name != Options.FilePathColumn && f.Name != Options.FileRowIndexColumn)
             .Select(f => f.IsNullable ? f : new Field(f.Name, f.DataType, nullable: true, f.Metadata))], null);
         CsvDatasetOptions options = Options with
         {

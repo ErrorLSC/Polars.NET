@@ -31,6 +31,8 @@ namespace Kaminari.Seseragi.Files.Json;
 /// were one (the numbers of each file follow the previous files' records, those of files left out included: their
 /// records are read and counted, so a syntax error in them fails the read): the first column.</item>
 /// <item><see cref="JsonReadOptions.MaxRows"/> counts the rows delivered across the files.</item>
+/// <item><see cref="DatasetOptions.FileRowIndexColumn"/> numbers each file's rows from 0 (before filters): the last
+/// column; conjuncts over it alone filter the rows delivered; files left out are not read for it.</item>
 /// </list>
 /// Errors in a file name it, and the line (and array index) in it.
 /// </remarks>
@@ -168,7 +170,9 @@ public sealed class JsonDatasetReader : IDisposable, IAsyncDisposable
                         if (batch is null) continue;
                         if (taken.Raw) batch = _shape.Convert(batch, taken.Plan!.Converted, taken.Plan.FilterAfter, file);
                         if (batch is null) continue;
-                        if (_indexed) RowNumbers.Shift(batch.Column(0), before + records);
+                        // Numbered from the unit's first record: the file's records before it, and the files' before those.
+                        batch = _shape.Number(batch, records, before + records, taken.Plan!.FilterAfter);
+                        if (batch is null) continue;
                         yield return _shape.Cut(batch, ref left, null);
                     }
                     lines += unit.Lines;
@@ -280,7 +284,7 @@ public sealed class JsonDatasetReader : IDisposable, IAsyncDisposable
         try
         {
             return JsonReader.Prepare(_dataset.FileSchema, columns.Lists[after ? 1 : 0].Columns, _options.FilterRows ? filter : null,
-                rowIndex ? _options : _options with { RowIndexColumn = null }, strict);
+                _options with { RowIndexColumn = rowIndex ? _shape.NumbersColumn : null }, strict);
         }
         catch (Exception e) when (JsonDataset.Named(path, e) is { } named)
         {

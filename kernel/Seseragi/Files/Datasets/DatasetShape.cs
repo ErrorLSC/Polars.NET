@@ -6,6 +6,7 @@ using Kaminari.Sazanami.Arrow.Builders;
 using Kaminari.Sazanami.Arrow.Compute;
 using Kaminari.Sazanami.Arrow.Interop;
 using Kaminari.Sazanami.Filters;
+using Kaminari.Sazanami.Rows;
 using Microsoft.FSharp.Core;
 
 namespace Kaminari.Seseragi.Files;
@@ -25,7 +26,11 @@ internal sealed class DatasetShape
     private readonly Func<int, string> _pathOf;
     private readonly Func<string, Exception?, Exception> _error;
     private readonly bool _views;
-    private readonly string? _rowIndex;
+    private readonly string? _rowIndex;                   // the row index across the files, first (ParquetReadOptions.RowIndexColumn, …)
+    private readonly string? _fileRowIndex;               // each row's number in its file, last (DatasetOptions.FileRowIndexColumn)
+    private readonly Schema _converted;                   // the batches Convert makes: the readers' numbers first when numbered, no file row index
+    private readonly ScalarExpr? _positions;              // the conjuncts over the file row index alone
+    private readonly FilterProgram? _positionProgram;     // _positions as rows are filtered by them (numbered in their files)
     private readonly bool _allowMissing;
     private readonly ArrowConversionRules _rules;
     private readonly Column[] _layout;
@@ -64,7 +69,10 @@ internal sealed class DatasetShape
     /// <param name="paths">The struct fields selected (each path from a top-level column).</param>
     /// <param name="filter">The filter (canonical), or null.</param>
     /// <param name="filterRows">Whether the rows the filter rules out are left out.</param>
-    /// <param name="rowIndexColumn">The row index column the files' readers put first, or null.</param>
+    /// <param name="rowIndexColumn">
+    /// The row index column (across the files), or null. The files' readers put their rows' numbers first when it or
+    /// the file row index is asked (<see cref="NumbersColumn"/>); <see cref="Number"/> makes both of them.
+    /// </param>
     /// <param name="views">Whether strings added (partition values, the file path) are views.</param>
     /// <param name="pathOf">File <c>i</c>'s path.</param>
     /// <param name="error">The format's error for a message (naming the file) and its cause.</param>
@@ -79,6 +87,7 @@ internal sealed class DatasetShape
         _error = error;
         _views = views;
         _rowIndex = rowIndexColumn;
+        _fileRowIndex = dataset.FileRowIndexColumn;
         _allowMissing = dataset.AllowMissingColumns || dataset.Schema is null && dataset.SchemaMode == DatasetSchemaMode.UnionByName;
         _rules = new ArrowConversionRules(dataset.AllowLossyCasts, _allowMissing);
         bool IsPartition(string name) => partitions?.IndexOf(name) >= 0;
@@ -98,7 +107,7 @@ internal sealed class DatasetShape
         bool all = selected is null && paths is null;
         foreach (string name in selected ?? [])
         {
-            if (!IsPartition(name) && !Columns.ContainsKey(name) && name != dataset.FilePathColumn)
+            if (!IsPartition(name) && !Columns.ContainsKey(name) && name != dataset.FilePathColumn && name != dataset.FileRowIndexColumn)
                 throw new ArgumentException($"The dataset has no column '{name}' (the columns are those of the files and the partitions).", "options");
         }
         Dictionary<string, List<string[]>> below = new(StringComparer.Ordinal);
@@ -125,13 +134,23 @@ internal sealed class DatasetShape
         // read; the others go to the files, those over both with each file's values put in.
         Read = [.. Enumerable.Repeat(true, files.Count)];
         bool exact = true;
-        List<ScalarExpr> onFiles = [], mixed = [];
+        List<ScalarExpr> onFiles = [], mixed = [], positions = [];
         if (filter is not null)
         {
             List<ScalarExpr> perFile = [];
             foreach (ScalarExpr conjunct in FilterShapes.conjuncts(filter))
             {
                 string[] names = [.. ScalarExprOps.collectColumns(conjunct)];
+                // Over the file row index: alone, its rows are selected by number; with other columns, refused when rows
+                // are filtered (only pruning otherwise: left out).
+                if (_fileRowIndex is { } position && names.Contains(position))
+                {
+                    if (names.All(n => n == position)) positions.Add(conjunct);
+                    else if (filterRows)
+                        throw new ArgumentException($"A filter conjunct reads the file row index column '{position}' with other columns "
+                            + $"({string.Join(", ", names.Where(n => n != position))}): only conjuncts over it alone are taken (split the conjunct).", "options");
+                    continue;
+                }
                 int inPerFile = names.Count(PerFile);
                 (inPerFile == 0 ? onFiles : inPerFile == names.Length ? perFile : mixed).Add(conjunct);
             }
@@ -148,10 +167,18 @@ internal sealed class DatasetShape
         _filterColumns = [.. onFiles.Concat(mixed).SelectMany(ScalarExprOps.collectColumns).Distinct()];
         _rowFilter = onFiles.Count + mixed.Count == 0 ? null : onFiles.Concat(mixed).Aggregate(And);
 
+        _positions = positions.Count == 0 ? null : positions.Aggregate(And);
+
         // Exact when the filter lowers exactly over the dataset's types (each file's rows are filtered again after
         // conversion where its own filtering is not exact).
         FilterRoots = [];
         FiltersExactly = filterRows && exact;
+        if (filterRows && _positions is { } over)
+        {
+            LoweredFilter lowered = FilterLowering.lower(new Schema([new Field(_fileRowIndex!, Int64Type.Default, nullable: false)], null), over);
+            FiltersExactly &= lowered.Exact;
+            if (OptionModule.IsSome(lowered.Program)) _positionProgram = lowered.Program.Value;
+        }
         if (filterRows && _rowFilter is { } rows)
         {
             LoweredFilter lowered = FilterLowering.lower(FilterSchema(columns), rows);
@@ -179,15 +206,28 @@ internal sealed class DatasetShape
         }
         _layout = [.. layout];
         List<Field> output = [.. _layout.Select(c => c.Field)];
+        if (dataset.FilePathColumn is { } file)
+        {
+            if (output.Any(f => f.Name == file)) throw new ArgumentException($"The file path column '{file}' has the name of another column read.", "options");
+            output.Add(PathField(file, views));
+        }
+        // What Convert makes: the readers' numbers first (named as the readers name them), when numbered.
+        List<Field> converted = [.. output];
+        if (NumbersColumn is { } numbers)
+        {
+            if (output.Any(f => f.Name == numbers)) throw new ArgumentException($"The row index column '{numbers}' has the name of another column read.", "options");
+            converted.Insert(0, new Field(numbers, Int64Type.Default, nullable: false));
+        }
+        _converted = new Schema(converted, columns.Metadata);
         if (rowIndexColumn is { } index)
         {
             if (output.Any(f => f.Name == index)) throw new ArgumentException($"The row index column '{index}' has the name of another column read.", "options");
             output.Insert(0, new Field(index, Int64Type.Default, nullable: false));
         }
-        if (dataset.FilePathColumn is { } file)
+        if (_fileRowIndex is { } fileRow)
         {
-            if (output.Any(f => f.Name == file)) throw new ArgumentException($"The file path column '{file}' has the name of another column read.", "options");
-            output.Add(PathField(file, views));
+            if (output.Any(f => f.Name == fileRow)) throw new ArgumentException($"The file row index column '{fileRow}' has the name of another column read.", "options");
+            output.Add(new Field(fileRow, Int64Type.Default, nullable: false));
         }
         Schema = new Schema(output, columns.Metadata);
 
@@ -287,8 +327,20 @@ internal sealed class DatasetShape
     /// </summary>
     public ScalarExpr? RowFilter => _rowFilter;
 
-    /// <summary>Whether the dataset filters some files' rows after converting them (where their own filtering is not exact).</summary>
-    public bool FiltersAfter => _program is not null;
+    /// <summary>
+    /// Whether the dataset filters some files' rows after converting them (where their own filtering is not exact), or
+    /// filters rows by their numbers in their files (<see cref="Number"/>): their readers then read every row.
+    /// </summary>
+    public bool FiltersAfter => _program is not null || _positionProgram is not null;
+
+    /// <summary>
+    /// The name of the column the files' readers put first, numbering their rows (their row index option), when the
+    /// row index or the file row index is asked; else null.
+    /// </summary>
+    public string? NumbersColumn => _rowIndex ?? _fileRowIndex;
+
+    /// <summary>The conjuncts of the filter over the file row index alone (null when none): the rows they select, by number.</summary>
+    public ScalarExpr? PositionFilter => _positions;
 
     /// <summary>The leaves the columns read hold (a struct's fields, a list's elements, a map's keys and values).</summary>
     public int Leaves => Targets.Sum(t => LeavesOf(t.Field.DataType)) + FilterRoots.Length;
@@ -369,7 +421,7 @@ internal sealed class DatasetShape
     /// </summary>
     public Converted Conversions(Schema read, bool after, string path, int index)
     {
-        int skip = _rowIndex is null ? 0 : 1;
+        int skip = NumbersColumn is null ? 0 : 1;
         ArrowDefaults? defaults = DefaultsOf(index);
         var outputs = new (int, ArrowConversion)[Targets.Length];
         for (int t = 0; t < Targets.Length; t++) outputs[t] = Conversion(read, skip, Targets[t].Name, Targets[t].Field, path, defaults?.Field(Targets[t].Name));
@@ -558,12 +610,13 @@ internal sealed class DatasetShape
     /// <summary>
     /// File <paramref name="index"/>'s batch in the dataset's schema: its columns converted (<paramref name="converted"/>)
     /// and in order, partition values and the file path added; filtered by the dataset when <paramref name="filterAfter"/>.
-    /// Null when no row is left. Safe on any thread.
+    /// Numbered (<see cref="NumbersColumn"/>), the readers' numbers stay first, as they are: <see cref="Number"/> then
+    /// makes the batch the dataset's. Null when no row is left. Safe on any thread.
     /// </summary>
     public RecordBatch? Convert(RecordBatch batch, Converted converted, bool filterAfter, int index)
     {
-        int length = batch.Length, skip = _rowIndex is null ? 0 : 1;
-        var columns = new IArrowArray[Schema.FieldsList.Count];
+        int length = batch.Length, skip = NumbersColumn is null ? 0 : 1;
+        var columns = new IArrowArray[_converted.FieldsList.Count];
         var used = new bool[batch.ColumnCount]; // the batch's columns handed on as they are
         IArrowArray[] filterArrays = [];
         try
@@ -582,7 +635,7 @@ internal sealed class DatasetShape
                         : Convert(batch, converted.Outputs[_layout[c].Target], length, used);
                 }
                 if (_dataset.FilePathColumn is not null) columns[^1] = ConstantArrays.String(_pathOf(index), length, _views);
-                if (filterAfter) filterArrays = [.. converted.Filtered.Select(f => Convert(batch, f, length, used))];
+                if (filterAfter && _program is not null) filterArrays = [.. converted.Filtered.Select(f => Convert(batch, f, length, used))];
             }
             catch (OverflowException e)
             {
@@ -596,7 +649,7 @@ internal sealed class DatasetShape
                 }
             }
 
-            if (filterAfter)
+            if (filterAfter && _program is not null)
             {
                 // The dataset's filter over the converted columns (and the file's partition values).
                 FilterProgram program = _program!;
@@ -660,7 +713,7 @@ internal sealed class DatasetShape
             foreach (IArrowArray column in columns) column.Dispose();
             return null;
         }
-        return new RecordBatch(Schema, columns, length);
+        return new RecordBatch(_converted, columns, length);
 
         static IArrowArray Constant(IArrowArray values, int file, int length, IArrowType type)
         {
@@ -671,6 +724,147 @@ internal sealed class DatasetShape
                     : ConstantArrays.String(strings.GetString(file), length, view: true);
             return ConstantArrays.Repeat(values, file, length);
         }
+    }
+
+    /// <summary>
+    /// A converted batch (<see cref="Convert(RecordBatch, Converted, bool, int)"/>) numbered as the dataset numbers rows, in file order (a file's rows are
+    /// numbered once those before it are known): the row index first, <paramref name="toGlobal"/> added to the readers'
+    /// numbers; the file row index last, <paramref name="toFile"/> added; with <paramref name="filterPositions"/>, the
+    /// rows the conjuncts over the file row index rule out left out (null when none is left). Unnumbered, the batch as
+    /// it is.
+    /// </summary>
+    public RecordBatch? Number(RecordBatch batch, long toFile, long toGlobal, bool filterPositions)
+    {
+        if (NumbersColumn is null) return batch;
+        IArrowArray numbers = batch.Column(0);
+        IArrowArray? global = null, file = null;
+        if (_fileRowIndex is null)
+        {
+            global = numbers;
+            RowNumbers.Shift(global, toGlobal);
+        }
+        else
+        {
+            if (_rowIndex is not null) global = RowNumbers.Shifted(numbers, toGlobal);
+            file = numbers;
+            RowNumbers.Shift(file, toFile);
+        }
+        List<IArrowArray> columns = [.. batch.Arrays.Skip(1)];
+        if (global is not null) columns.Insert(0, global);
+        if (file is not null) columns.Add(file);
+        int length = batch.Length;
+        if (filterPositions && _positionProgram is { } program && length > 0)
+        {
+            var mask = new ulong[Masks.Words(length)];
+            int kept = program.Evaluate([file!], length, mask);
+            if (kept == 0)
+            {
+                foreach (IArrowArray column in columns) column.Dispose();
+                return null;
+            }
+            if (kept < length)
+            {
+                for (int c = 0; c < columns.Count; c++)
+                {
+                    IArrowArray all = columns[c];
+                    columns[c] = ArrowFilter.Filter(all, mask);
+                    all.Dispose();
+                }
+                length = kept;
+            }
+        }
+        return new RecordBatch(Schema, columns, length);
+    }
+
+    /// <summary>
+    /// The rows of a file of <paramref name="rows"/> rows the conjuncts over the file row index select (by number), as
+    /// far as their shapes say (comparisons of it with integers, their <c>And</c>, <c>Or</c> and <c>Not</c>, <c>In</c>
+    /// lists of integers); null when there are none or none of them has such a shape. <paramref name="exact"/>: every
+    /// conjunct had (the rows are exactly those the conjuncts keep).
+    /// </summary>
+    public RowRanges? PositionRows(long rows, out bool exact)
+    {
+        exact = false;
+        if (_positions is null) return null;
+        RowRanges? selected = null;
+        exact = true;
+        foreach (ScalarExpr conjunct in FilterShapes.conjuncts(_positions))
+        {
+            if (Ranges(conjunct) is { } ranges) selected = selected is null ? ranges : selected.Intersect(ranges);
+            else exact = false;
+        }
+        return selected;
+
+        // The rows a predicate over the position keeps (it is never null), or null for a shape not modelled.
+        RowRanges? Ranges(ScalarExpr e)
+        {
+            switch (e)
+            {
+                case ScalarExpr.Binary { op: var op } b when op.IsAnd || op.IsOr:
+                    return Ranges(b.left) is { } l && Ranges(b.right) is { } r ? op.IsAnd ? l.Intersect(r) : l.Union(r) : null;
+                case ScalarExpr.Unary { op: var op } u when op.IsNot:
+                    return Ranges(u.expr)?.Complement(rows);
+                case ScalarExpr.Binary b when b.left is ScalarExpr.Column && Integer(b.right) is { } value:
+                    return Compare(b.op, value);
+                case ScalarExpr.Binary b when b.right is ScalarExpr.Column && Integer(b.left) is { } value:
+                    return Flipped(b.op) is { } flipped ? Compare(flipped, value) : null;
+                case ScalarExpr.InList { expr: ScalarExpr.Column, source: InListSource.Literals list, negated: var negated }:
+                {
+                    List<long> at = [];
+                    foreach (LiteralValue literal in list.Item)
+                    {
+                        if (Integer(ScalarExpr.NewLiteral(literal)) is not { } v) return null;
+                        if (v >= 0 && v < rows) at.Add((long)v);
+                    }
+                    at.Sort();
+                    RowRanges these = RowRanges.FromIndices([.. at.Distinct()]);
+                    return negated ? these.Complement(rows) : these;
+                }
+                default:
+                    return null;
+            }
+        }
+
+        // A comparison of the position with a value (never null: the missing-aware forms are the same).
+        RowRanges? Compare(BinaryOp op, Int128 value)
+        {
+            if (op.IsNotEq || op.IsNotEqMissing) return Compare(BinaryOp.Eq, value)!.Complement(rows);
+            (Int128 From, Int128 To)? range = op switch // [From, To)
+            {
+                _ when op.IsEq || op.IsEqMissing => (value, value + 1),
+                _ when op.IsLt => (Int128.MinValue, value),
+                _ when op.IsLtEq => (Int128.MinValue, value + 1),
+                _ when op.IsGt => (value + 1, Int128.MaxValue),
+                _ when op.IsGtEq => (value, Int128.MaxValue),
+                _ => null,
+            };
+            if (range is not var (from, to)) return null;
+            long start = (long)Int128.Clamp(from, 0, rows), end = (long)Int128.Clamp(to, 0, rows);
+            return end > start ? RowRanges.Of([(start, end - start)]) : RowRanges.Empty;
+        }
+
+        static BinaryOp? Flipped(BinaryOp op) => op switch
+        {
+            _ when op.IsEq || op.IsNotEq || op.IsEqMissing || op.IsNotEqMissing => op,
+            _ when op.IsLt => BinaryOp.Gt,
+            _ when op.IsLtEq => BinaryOp.GtEq,
+            _ when op.IsGt => BinaryOp.Lt,
+            _ when op.IsGtEq => BinaryOp.LtEq,
+            _ => null,
+        };
+
+        static Int128? Integer(ScalarExpr e) => e is ScalarExpr.Literal { value: var v } ? v switch
+        {
+            LiteralValue.Int8 x => x.Item,
+            LiteralValue.Int16 x => x.Item,
+            LiteralValue.Int32 x => x.Item,
+            LiteralValue.Int64 x => x.Item,
+            LiteralValue.UInt8 x => x.Item,
+            LiteralValue.UInt16 x => x.Item,
+            LiteralValue.UInt32 x => x.Item,
+            LiteralValue.UInt64 x => x.Item,
+            _ => null,
+        } : null;
     }
 
     /// <summary>A batch cut to the <paramref name="remaining"/> rows still to deliver (over its memory: disposing the cut releases it all).</summary>
@@ -753,9 +947,18 @@ internal sealed class DatasetShape
     /// dataset's (<paramref name="has"/>) is cast up where arithmetic reads it, so that the arithmetic is the dataset's
     /// (an Int32 file's column of an Int64 dataset wraps where the dataset does); a conjunct with arithmetic over a column
     /// of another type that cannot be cast up (a nested one, a decimal, …) is left out. Whether every conjunct is in (one left out, or one with a partition value of no literal
-    /// form, makes the file's rows filtered less).
+    /// form, makes the file's rows filtered less). The conjuncts over the file row index are never in: the file's rows are
+    /// filtered by them after (<see cref="Number"/>) unless <paramref name="positionsSelected"/> (the file's reader reads
+    /// exactly the rows they keep, <see cref="PositionRows"/>).
     /// </summary>
-    public (ScalarExpr? Filter, bool Complete) FileFilter(int index, HashSet<string> missing, HashSet<string> dropped, IReadOnlyDictionary<string, Field> has)
+    public (ScalarExpr? Filter, bool Complete) FileFilter(int index, HashSet<string> missing, HashSet<string> dropped, IReadOnlyDictionary<string, Field> has,
+        bool positionsSelected = false)
+    {
+        var (filter, complete) = FileFilterOf(index, missing, dropped, has);
+        return (filter, complete && (_positionProgram is null || positionsSelected));
+    }
+
+    private (ScalarExpr? Filter, bool Complete) FileFilterOf(int index, HashSet<string> missing, HashSet<string> dropped, IReadOnlyDictionary<string, Field> has)
     {
         Dictionary<string, IArrowType>? widened = null;
         HashSet<string>? reshaped = null;
