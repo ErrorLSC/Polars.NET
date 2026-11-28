@@ -1,6 +1,7 @@
 using Apache.Arrow;
 using Apache.Arrow.Types;
 using Kaminari.Sazanami.Compression;
+using Kaminari.Seseragi.Files;
 using Kaminari.Seseragi.Files.IO;
 using Kaminari.Seseragi.Files.Parquet;
 using Kaminari.Seseragi.Files.Parquet.Codecs;
@@ -655,9 +656,9 @@ public class ParquetReaderTests
     }
 
     /// <summary>
-    /// Off reads no chunk from a mapping, On every one, Auto (the default) the Snappy-compressed and the uncompressed
-    /// fixed-width ones; only files opened by path are mapped (streams, even file streams, and memory ignore the
-    /// setting); an unknown mode is refused.
+    /// Off reads no chunk from a mapping, On every one, Auto (the default) the Snappy-compressed ones, the uncompressed
+    /// fixed-width ones and the uncompressed strings without a dictionary of at most 16 bytes a value; only files
+    /// opened by path are mapped (streams, even file streams, and memory ignore the setting); an unknown mode is refused.
     /// </summary>
     [Fact]
     public void MemoryMap_ReadsTheChunksItSays()
@@ -668,7 +669,9 @@ public class ParquetReaderTests
             using var file = ParquetFile.OpenOnSource(ParquetFixtures.FullPath(name));
             int chunks = file.Thrift.RowGroups.Sum(g => g.Columns.Length);
             int automatic = file.Thrift.RowGroups.Sum(g => g.Columns.Count(c => c.MetaData!.Codec == CompressionCodec.Snappy
-                || c.MetaData.Codec == CompressionCodec.Uncompressed && c.MetaData.Type is not (ParquetType.ByteArray)));
+                || c.MetaData.Codec == CompressionCodec.Uncompressed && c.MetaData.Type is not (ParquetType.ByteArray)
+                || c.MetaData.Codec == CompressionCodec.Uncompressed && c.MetaData.DictionaryPageOffset is not > 0
+                    && c.MetaData.NumValues > 0 && c.MetaData.TotalUncompressedSize <= 16 * c.MetaData.NumValues));
             List<string>? reference = null;
             foreach (ParquetMemoryMap map in (ParquetMemoryMap[])[ParquetMemoryMap.Off, ParquetMemoryMap.On, ParquetMemoryMap.Auto])
             {
@@ -729,6 +732,43 @@ public class ParquetReaderTests
         }
         using (var plain = ParquetFile.OpenOnSource(ParquetFixtures.FullPath("matrix/pa_plain_v1.parquet")))
             Assert.Contains(plain.Thrift.RowGroups, g => g.Columns.Any(c => c.MetaData!.Type == ParquetType.ByteArray)); // Auto leaves some out
+
+        // Uncompressed strings by their length: short ones (inline views) mapped, long ones and dictionaries not.
+        string strings = Path.Combine(Path.GetTempPath(), $"seseragi-strings-{Guid.NewGuid():N}.parquet");
+        try
+        {
+            var schema = new Apache.Arrow.Schema([new Field("short", StringType.Default, false), new Field("long", StringType.Default, false),
+                new Field("coded", StringType.Default, false)], null);
+            var shortValues = new StringArray.Builder();
+            var longValues = new StringArray.Builder();
+            var coded = new StringArray.Builder();
+            for (int i = 0; i < 5000; i++)
+            {
+                shortValues.Append($"s{i:D7}");                 // 4-byte length + 8 bytes
+                longValues.Append($"l{i:D7}{new string('x', 40)}"); // 4 + 48
+                coded.Append($"c{i % 7}");
+            }
+            using (var writer = ParquetWriter.Create(strings, schema, new ParquetWriteOptions
+            {
+                Compression = NoCompression.Instance,
+                Columns = new Dictionary<string, ParquetColumnOptions> { ["short"] = new() { Dictionary = false }, ["long"] = new() { Dictionary = false } },
+            }))
+            {
+                writer.Write(new RecordBatch(schema, [shortValues.Build(), longValues.Build(), coded.Build()], 5000));
+                writer.Complete();
+            }
+            using var file = ParquetFile.Open(strings);
+            foreach (var (column, mapped) in ((string, int)[])[("short", 1), ("long", 0), ("coded", 0)])
+            {
+                using var reader = file.OpenReader(new() { Columns = [column] });
+                Assert.Equal(5000, reader.ReadBatches().Sum(b => { using (b) return b.Length; }));
+                Assert.True(mapped == reader.MappedChunks, $"{column}: {reader.MappedChunks} chunks mapped");
+            }
+        }
+        finally
+        {
+            File.Delete(strings);
+        }
 
         byte[] bytes = File.ReadAllBytes(ParquetFixtures.FullPath("matrix/pa_plain_v1.parquet"));
         using (var memory = ParquetFile.Open(new MemoryStream(bytes)))

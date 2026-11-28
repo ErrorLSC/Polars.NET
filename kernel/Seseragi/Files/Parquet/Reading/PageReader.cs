@@ -38,6 +38,12 @@ internal sealed class PageReader : IDisposable, IPageMemory
     /// <summary>The bytes read ahead from a file at once (more when a page is larger).</summary>
     internal const int ReadAhead = 1 << 20;
 
+    /// <summary>
+    /// The bytes read past a page's body with it: room for the next page's header, so that parsing it (from its first
+    /// 64 KiB) needs no read of its own.
+    /// </summary>
+    internal const int HeaderRoom = 64 * 1024;
+
     private readonly ReadOnlyMemory<byte> _chunk;
     private readonly CompressionCodec _codec;
     private readonly bool _verifyChecksums;
@@ -196,10 +202,13 @@ internal sealed class PageReader : IDisposable, IPageMemory
 
     /// <summary>
     /// Chunk bytes [<paramref name="from"/>, + <paramref name="count"/>), clipped to the chunk: a slice of the chunk
-    /// in memory, or of the window, which is refilled from <paramref name="from"/> on (at least <see cref="ReadAhead"/>
-    /// bytes) when it does not hold them.
+    /// in memory, or of the window, which is refilled from <paramref name="from"/> on when it does not hold them. Each
+    /// byte of the file is read once: what the window holds from <paramref name="from"/> on moves to its front, and
+    /// only the rest is read. A header (<paramref name="header"/>) is read alone; a body with
+    /// <see cref="HeaderRoom"/> for the next header, and at least <see cref="ReadAhead"/> bytes (pages smaller than
+    /// that come several to a read).
     /// </summary>
-    private ReadOnlyMemory<byte> Bytes(long from, long count)
+    private ReadOnlyMemory<byte> Bytes(long from, long count, bool header = false)
     {
         count = Math.Min(count, _length - from);
         if (_segments is not null) return Segment(from, count);
@@ -207,10 +216,13 @@ internal sealed class PageReader : IDisposable, IPageMemory
         if (from < _windowStart || from + count > _windowEnd)
         {
             // A header parsed for a page read ahead: its helper reads the body itself, so only the header is read.
-            long length = Math.Min(Math.Max(count, _headerAhead ? 0 : ReadAhead), Math.Max(ReadLimit(from), from + count) - from);
+            long wanted = header || _headerAhead ? count : Math.Max(count + HeaderRoom, ReadAhead);
+            long length = Math.Min(wanted, Math.Max(ReadLimit(from), from + count) - from);
             _window ??= _pool?.Rent(length) ?? new NativeByteBuffer(0, pooled: true);
-            _window.EnsureCapacity(length);
-            if (_source.ReadAt(_sourceStart + from, _window.Span[..(int)length]) != length)
+            _window.EnsureCapacity(length); // keeps what it holds
+            long kept = from >= _windowStart && from < _windowEnd ? _windowEnd - from : 0;
+            if (kept > 0) _window.Span.Slice((int)(from - _windowStart), (int)kept).CopyTo(_window.Span);
+            if (_source.ReadAt(_sourceStart + from + kept, _window.Span[(int)kept..(int)length]) != length - kept)
                 throw new ParquetFormatException("The file ends inside a column chunk.");
             _windowStart = from;
             _windowEnd = from + length;
@@ -309,7 +321,7 @@ internal sealed class PageReader : IDisposable, IPageMemory
         {
             try
             {
-                return PageHeader.Parse(Bytes(_position, offered).Span, out headerLength, skipStatistics: true);
+                return PageHeader.Parse(Bytes(_position, offered, header: true).Span, out headerLength, skipStatistics: true);
             }
             catch (ParquetFormatException) when (offered < rest)
             {

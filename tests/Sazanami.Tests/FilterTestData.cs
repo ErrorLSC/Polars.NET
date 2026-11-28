@@ -171,11 +171,26 @@ internal static class FilterTestData
     /// <summary>The values as a dictionary array: distinct entries in random order, a null entry, indices of random width.</summary>
     public static IArrowArray BuildDictionary(Random random, ColumnKind kind, object?[] values)
     {
-        List<object?> entries = [null];
+        // A null entry or none (with none, every entry is true or false: the few-entries path), entries in any order.
+        bool nullEntry = random.Next(2) == 0;
+        List<object?> entries = nullEntry ? [null] : [];
         foreach (object v in kind.Pool.OrderBy(_ => random.Next())) entries.Add(v);
-        int Entry(object? v) => v is null ? (random.Next(2) == 0 ? 0 : -1) : entries.FindIndex(e => e is not null && Compare(e, v) == 0 && Same(e, v));
+        int Entry(object? v) => v is null ? (nullEntry && random.Next(2) == 0 ? 0 : -1) : entries.FindIndex(e => e is not null && Compare(e, v) == 0 && Same(e, v));
         int[] indices = [.. values.Select(Entry)];
         IArrowArray dictionary = Build(random, kind, [.. entries]);
+        // Strings and binaries: the entries in the other layout at times (plain offsets for views, views for offsets).
+        IArrowType valueType = kind.Type;
+        if (kind.Type is StringType or StringViewType or BinaryType or BinaryViewType && random.Next(2) == 0)
+        {
+            valueType = kind.Type switch
+            {
+                StringType => StringViewType.Default,
+                StringViewType => StringType.Default,
+                BinaryType => BinaryViewType.Default,
+                _ => BinaryType.Default,
+            };
+            dictionary = new Kaminari.Sazanami.Arrow.Compute.RelayoutConversion(valueType).Convert(dictionary);
+        }
         var validity = new byte[(values.Length + 7) / 8 + 1];
         for (int i = 0; i < indices.Length; i++)
         {
@@ -183,10 +198,12 @@ internal static class FilterTestData
         }
         int nulls = indices.Count(i => i < 0);
         IArrowType indexType = random.Next(2) == 0 ? Int32Type.Default : Int8Type.Default;
+        // A null's index is garbage: past the entries, or an entry's (whose outcome must not leak into the row).
+        int Garbage() => random.Next(2) == 0 ? random.Next(entries.Count) : indexType is Int8Type ? -7 : 12345;
         byte[] raw = indexType is Int8Type
-            ? [.. indices.Select(i => (byte)(sbyte)(i < 0 ? -7 : i))] // a null's index is garbage
-            : [.. indices.SelectMany(i => BitConverter.GetBytes(i < 0 ? 12345 : i))];
-        var data = new ArrayData(new DictionaryType(indexType, kind.Type, false), values.Length, nulls, 0,
+            ? [.. indices.Select(i => (byte)(sbyte)(i < 0 ? Garbage() : i))]
+            : [.. indices.SelectMany(i => BitConverter.GetBytes(i < 0 ? Garbage() : i))];
+        var data = new ArrayData(new DictionaryType(indexType, valueType, false), values.Length, nulls, 0,
             [nulls == 0 ? ArrowBuffer.Empty : new ArrowBuffer(validity), new ArrowBuffer(raw)], [], dictionary.Data);
         return ArrowArrayFactory.BuildArray(data);
 

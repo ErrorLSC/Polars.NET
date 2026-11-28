@@ -53,6 +53,15 @@ internal sealed unsafe class NativeDictionaryBuilder : NativeColumnBuilder
         return slots;
     }
 
+    /// <summary>Appends a valid slot per index, the index plus <paramref name="add"/> (copied, then added in vectors).</summary>
+    public void AppendIndices(ReadOnlySpan<int> indices, int add = 0)
+    {
+        var slots = new Span<int>(_indices.Reserve((long)indices.Length * sizeof(int)), indices.Length);
+        indices.CopyTo(slots);
+        if (add != 0) Kernels.VectorKernels.AddInPlace(slots, add);
+        MarkValid(indices.Length);
+    }
+
     public override void AppendNull()
     {
         _indices.Append(0);

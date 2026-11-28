@@ -259,7 +259,23 @@ public sealed class ParquetReader : IDisposable, IAsyncDisposable
             RemainingIndex = new int[projected.Length];
             for (int c = 0, r = 0; c < projected.Length; c++) RemainingIndex[c] = Reuse[c] < 0 ? r++ : -1;
             Nested = projected.Any(p => !p.IsFlat);
+            // A flat string or binary column the program only tests (no struct field below it, no expression): its
+            // dictionary-encoded chunks are decoded as dictionaries, the program testing each entry once.
+            DictionaryLeaves = new bool[Predicates.Leaves.Length];
+            for (int r = 0; r < read.Count; r++)
+            {
+                if (!read[r].IsFlat || Predicates.Leaves[Predicates.ColumnLeaves[r].First].LeafType is not { Dictionary: false } type
+                    || type.Kind is not (ValueKind.Utf8 or ValueKind.Binary)
+                    || type.ArrowType is not (StringType or BinaryType or StringViewType or BinaryViewType)) continue;
+                int column = r;
+                int[] uses = [.. Enumerable.Range(0, Arguments.Length).Where(a => Arguments[a].Column == column)];
+                DictionaryLeaves[Predicates.ColumnLeaves[r].First] = uses.Length > 0
+                    && uses.All(a => Arguments[a].Fields.Length == 0 && program.TakesDictionaries(a));
+            }
         }
+
+        /// <summary>Per leaf of <see cref="Predicates"/>: whether its dictionary-encoded chunks are decoded as dictionaries.</summary>
+        public bool[] DictionaryLeaves { get; }
 
         public FilterProgram Program { get; }
 
@@ -688,17 +704,17 @@ public sealed class ParquetReader : IDisposable, IAsyncDisposable
     /// (null: all rows), appending only the rows <paramref name="keeping"/> keeps where a column can.
     /// </summary>
     private async Task<Decoded> DecodeSetAsync(ColumnSet set, int g, IReadOnlyList<(long Start, long Count)>? ranges, bool useAsync, bool parallel,
-        CancellationToken cancellationToken, Keeping? keeping = null)
+        CancellationToken cancellationToken, Keeping? keeping = null, bool[]? dictionaries = null)
     {
         using RowGroupChunks? chunks = _fetch && set.Leaves.Length > 0 ? await Fetch(set, g, ranges, useAsync, cancellationToken).ConfigureAwait(false) : null;
         // A fetch that waited resumes on the thread pool: decode back on the scheduler, within the threads the options
         // allow (else the units fetched ahead from a store would decode side by side, whatever the threads).
         if (chunks is not null && useAsync && TaskScheduler.Current != _schedulers.ConcurrentScheduler)
         {
-            return await Task.Factory.StartNew(() => DecodeColumnsAsync(set, g, chunks, ranges, parallel, cancellationToken, keeping), cancellationToken,
+            return await Task.Factory.StartNew(() => DecodeColumnsAsync(set, g, chunks, ranges, parallel, cancellationToken, keeping, dictionaries), cancellationToken,
                 TaskCreationOptions.DenyChildAttach, _schedulers.ConcurrentScheduler).Unwrap().ConfigureAwait(false);
         }
-        return await DecodeColumnsAsync(set, g, chunks, ranges, parallel, cancellationToken, keeping).ConfigureAwait(false);
+        return await DecodeColumnsAsync(set, g, chunks, ranges, parallel, cancellationToken, keeping, dictionaries).ConfigureAwait(false);
     }
 
     /// <summary>The rows a filter kept, batch by batch: a mask over each batch's rows, and how many it keeps.</summary>
@@ -759,7 +775,8 @@ public sealed class ParquetReader : IDisposable, IAsyncDisposable
     /// </summary>
     private async Task<RecordBatch[]> DecodeFilteredAsync(LateFilter late, ReadUnit unit, bool useAsync, bool parallel, CancellationToken cancellationToken)
     {
-        using Decoded predicates = await DecodeSetAsync(late.Predicates, unit.Group, unit.Rows, useAsync, parallel, cancellationToken).ConfigureAwait(false);
+        using Decoded predicates = await DecodeSetAsync(late.Predicates, unit.Group, unit.Rows, useAsync, parallel, cancellationToken,
+            dictionaries: late.DictionaryLeaves).ConfigureAwait(false);
         var masks = new ulong[predicates.Batches][];
         var kept = new int[predicates.Batches];
         long read = 0, total = 0;
@@ -818,9 +835,10 @@ public sealed class ParquetReader : IDisposable, IAsyncDisposable
                         // The selected columns the filter read come from its batches, the others from theirs (those
                         // decoded masked hold the rows kept already).
                         IArrowArray? source = late.Reuse[c] >= 0 ? predicates.Columns[late.Reuse[c]][b] : others.Columns[late.RemainingIndex[c]][b];
-                        columns.Add(all || late.Reuse[c] < 0 && others.Filtered[late.RemainingIndex[c]]
+                        IArrowArray column = all || late.Reuse[c] < 0 && others.Filtered[late.RemainingIndex[c]]
                             ? late.Reuse[c] >= 0 ? predicates.Take(late.Reuse[c], b) : others.Take(late.RemainingIndex[c], b)
-                            : ArrowFilter.Filter(source!, masks[b]));
+                            : ArrowFilter.Filter(source!, masks[b]);
+                        columns.Add(late.Reuse[c] >= 0 ? Undictionary(column, _columns[c].Field.DataType) : column);
                     }
                 }
                 catch
@@ -848,6 +866,47 @@ public sealed class ParquetReader : IDisposable, IAsyncDisposable
         {
             decoded.Columns[c][b]?.Dispose();
             decoded.Columns[c][b] = null;
+        }
+    }
+
+    /// <summary>Whether a chunk has dictionary-encoded pages (its other pages, if any, are read value by value).</summary>
+    private static bool DictionaryEncoded(ColumnMetaData meta) =>
+        meta.DictionaryPageOffset is > 0 || meta.Encodings.Any(static e => e is ParquetEncoding.PlainDictionary or ParquetEncoding.RleDictionary);
+
+    /// <summary>A string or binary leaf decoded as a dictionary: Int32 indices over its values in plain offsets.</summary>
+    private static LeafType AsDictionary(LeafType type) => type with
+    {
+        ArrowType = new DictionaryType(Int32Type.Default, type.Kind == ValueKind.Utf8 ? StringType.Default : BinaryType.Default, false),
+        Dictionary = true,
+    };
+
+    /// <summary>
+    /// A filter's column decoded as a dictionary (<see cref="LateFilter.DictionaryLeaves"/>) as the batches hold it
+    /// (the values of its rows, in <paramref name="type"/>'s layout); other arrays as they are. Takes the array.
+    /// </summary>
+    private static IArrowArray Undictionary(IArrowArray array, IArrowType type)
+    {
+        if (array.Data.DataType is not DictionaryType || type is DictionaryType) return array;
+        using (array)
+        {
+            // The entries in the batches' layout once (views over their bytes), then each row's entry taken: a 16-byte
+            // view per row for views, the long values' bytes shared.
+            // (A wrapper over the array's own dictionary, never disposed here: the array owns its buffers.)
+            IArrowArray dictionary = ArrowArrayFactory.BuildArray(array.Data.Dictionary!);
+            using IArrowArray? converted = type is StringType or BinaryType ? null : new RelayoutConversion(type).Convert(dictionary);
+            IArrowArray entries = converted ?? dictionary;
+            using var rows = new NativeArray<int>(Math.Max(1, array.Length));
+            ReadOnlySpan<int> indices = array.Data.Buffers[1].Span.CastTo<int>().Slice(array.Data.Offset, array.Length);
+            Span<int> taken = rows.AsSpan(0, array.Length);
+            indices.CopyTo(taken);
+            if (array.NullCount > 0)
+            {
+                for (int i = 0; i < taken.Length; i++)
+                {
+                    if (array.IsNull(i)) taken[i] = ArrowTake.NullRow;
+                }
+            }
+            return ArrowTake.Take(entries, taken);
         }
     }
 
@@ -1009,7 +1068,7 @@ public sealed class ParquetReader : IDisposable, IAsyncDisposable
     /// whatever the order they ran in.
     /// </summary>
     private async Task<Decoded> DecodeColumnsAsync(ColumnSet set, int g, RowGroupChunks? chunks, IReadOnlyList<(long Start, long Count)>? ranges,
-        bool parallel, CancellationToken cancellationToken, Keeping? keeping = null)
+        bool parallel, CancellationToken cancellationToken, Keeping? keeping = null, bool[]? dictionaries = null)
     {
         RowGroup group = _file.Thrift.RowGroups[g];
         long rows = group.NumRows;
@@ -1068,7 +1127,9 @@ public sealed class ParquetReader : IDisposable, IAsyncDisposable
                 // 200 columns 1-3 % slower).
                 if (ranges is null && set.Leaves.Length < _work.Max
                     && (meta.Codec != CompressionCodec.Uncompressed || encrypted || _options.VerifyChecksums)) pages.UseReadAhead(_work);
-                readers[l] = LeafReaders.Create(pages, leaf.Leaf, leaf.LeafType!, meta.NumValues);
+                readers[l] = dictionaries?[l] == true && DictionaryEncoded(meta)
+                    ? new DictionaryOutputLeafReader(pages, leaf.Leaf, AsDictionary(leaf.LeafType!), meta.NumValues, deduplicate: false)
+                    : LeafReaders.Create(pages, leaf.Leaf, leaf.LeafType!, meta.NumValues);
                 readers[l].UncompressedBytes = meta.TotalUncompressedSize;
                 readers[l].LevelsAsBits = _options.LevelsAsBits;
                 // Measured: staged non-temporal writes of strings win when threads compete for memory bandwidth and
@@ -1212,7 +1273,20 @@ public sealed class ParquetReader : IDisposable, IAsyncDisposable
     private bool FromMapping(ColumnMetaData meta, SchemaNode leaf) => _options.MemoryMap == ParquetMemoryMap.On
         || meta.Codec == CompressionCodec.Snappy
         || meta.Codec == CompressionCodec.Uncompressed && leaf.Element.Type is ParquetType.Boolean or ParquetType.Int32 or ParquetType.Int64
-            or ParquetType.Int96 or ParquetType.Float or ParquetType.Double or ParquetType.FixedLenByteArray;
+            or ParquetType.Int96 or ParquetType.Float or ParquetType.Double or ParquetType.FixedLenByteArray
+        || meta.Codec == CompressionCodec.Uncompressed && leaf.Element.Type == ParquetType.ByteArray && ShortPlainValues(meta);
+
+    /// <summary>The bytes per value up to which an uncompressed string chunk without a dictionary is read from a mapping.</summary>
+    internal const int MappedValueBytes = 16;
+
+    /// <summary>
+    /// Whether an uncompressed BYTE_ARRAY chunk holds short values and no dictionary (≤ <see cref="MappedValueBytes"/>
+    /// bytes per value, the footer's sizes): views hold them inline, so a copy of their pages is pure overhead, which a
+    /// mapping saves; long values are copied into the batches anyway, and a mapping only adds its page faults
+    /// (measured: 12 and 8 bytes a value 13–25 % faster mapped at 16 threads, 78 bytes 8–25 % slower).
+    /// </summary>
+    private static bool ShortPlainValues(ColumnMetaData meta) =>
+        meta.DictionaryPageOffset is not > 0 && meta.NumValues > 0 && meta.TotalUncompressedSize <= MappedValueBytes * meta.NumValues;
 
     /// <summary>
     /// The rows to read and to skip, in order (<paramref name="ranges"/>, all rows when null), and where a batch ends:

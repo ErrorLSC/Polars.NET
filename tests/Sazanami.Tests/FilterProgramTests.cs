@@ -387,6 +387,83 @@ public class FilterProgramTests
     }
 
     [Fact]
+    public void Dictionary_Int32IndexPastTheEntries_IsAnError_ExceptOnANullRow()
+    {
+        ColumnKind kind = Kind("utf8");
+        IArrowArray dictionary = Build(new Random(3), kind, ["a"u8.ToArray(), "b"u8.ToArray(), "c"u8.ToArray()]);
+        // 100 rows over every entry (none null: the few-entries path), one index past them.
+        int[] indices = [.. Enumerable.Range(0, 100).Select(i => i % 3)];
+        indices[70] = 3;
+        IArrowArray Array(byte[]? validity) => ArrowArrayFactory.BuildArray(new ArrayData(new DictionaryType(Int32Type.Default, StringType.Default, false), 100,
+            validity is null ? 0 : 1, 0, [validity is null ? ArrowBuffer.Empty : new ArrowBuffer(validity), new ArrowBuffer(MemoryMarshalBytes(indices))], [], dictionary.Data));
+        FilterProgram program = FilterProgram.Create([new FilterColumn(["x"], StringType.Default)], new FilterNode.Compare(0, CompareOp.Eq, StoredScalar.Bytes("b"u8.ToArray())));
+        Assert.Throws<InvalidDataException>(() => program.Evaluate([Array(null)], 100, new ulong[2]));
+
+        // Row 70 null: its index is garbage, never looked at.
+        byte[] valid = [.. Enumerable.Repeat((byte)0xFF, 13)];
+        valid[70 >> 3] &= unchecked((byte)~(1 << (70 & 7)));
+        var mask = new ulong[2];
+        Assert.Equal(32, program.Evaluate([Array(valid)], 100, mask)); // rows 1, 4, …, 97 but the null row 70
+        Assert.All(Enumerable.Range(0, 100), i => Assert.Equal(i != 70 && i % 3 == 1, (mask[i >> 6] >> (i & 63) & 1) != 0));
+
+        static byte[] MemoryMarshalBytes(int[] values) => [.. values.SelectMany(BitConverter.GetBytes)];
+    }
+
+    [Fact]
+    public void Dictionary_AFewEntriesOfOneOutcome_AreFoundByTheirIndices()
+    {
+        ColumnKind kind = Kind("utf8");
+        byte[][] words = [.. Enumerable.Range(0, 8).Select(i => Encoding.UTF8.GetBytes($"w{i}"))];
+        IArrowArray dictionary = Build(new Random(5), kind, [.. words]);
+        var random = new Random(8);
+        for (int round = 0; round < 60; round++)
+        {
+            int length = random.Next(64, 260);
+            int[] indices = [.. Enumerable.Range(0, length).Select(_ => random.Next(8))];
+            byte[] raw = [.. indices.SelectMany(BitConverter.GetBytes)];
+            IArrowArray array = ArrowArrayFactory.BuildArray(new ArrayData(new DictionaryType(Int32Type.Default, StringType.Default, false), length, 0, 0,
+                [ArrowBuffer.Empty, new ArrowBuffer(raw)], [], dictionary.Data));
+            // 1 to 3 entries listed (true rare), or all but 1 to 3 (false rare), negated or not.
+            int listed = random.Next(1, 4);
+            int[] members = [.. Enumerable.Range(0, 8).OrderBy(_ => random.Next()).Take(random.Next(2) == 0 ? listed : 8 - listed)];
+            FilterNode node = new FilterNode.InList(0, [.. members.Select(m => StoredScalar.Bytes(words[m]))]);
+            bool negate = random.Next(2) == 0;
+            if (negate) node = new FilterNode.Not(node);
+            FilterProgram program = FilterProgram.Create([new FilterColumn(["x"], StringType.Default)], node);
+            var mask = new ulong[Masks.Words(length) + 1];
+            mask.AsSpan().Fill(ulong.MaxValue);
+            int count = program.Evaluate([array], length, mask);
+            bool[] expected = [.. indices.Select(i => members.Contains(i) != negate)];
+            Assert.Equal(expected.Count(e => e), count);
+            for (int i = 0; i < length; i++) Assert.True(expected[i] == ((mask[i >> 6] >> (i & 63) & 1) != 0), $"round {round}, row {i}");
+            if ((length & 63) != 0) Assert.Equal(0UL, mask[Masks.Words(length) - 1] >> (length & 63)); // no bit past the last row
+        }
+    }
+
+    [Fact]
+    public void MasksEqual_SetTheBitsOfTheMatchingValues()
+    {
+        var random = new Random(64);
+        for (int round = 0; round < 200; round++)
+        {
+            byte[] bytes = [.. Enumerable.Range(0, 64 + random.Next(3)).Select(_ => (byte)random.Next(4))];
+            int[] ints = [.. Enumerable.Range(0, 64 + random.Next(3)).Select(_ => random.Next(-2, 3))];
+            byte b = (byte)random.Next(4);
+            int v = random.Next(-2, 3);
+            ulong expectedBytes = 0, expectedInts = 0;
+            for (int i = 0; i < 64; i++)
+            {
+                if (bytes[i] == b) expectedBytes |= 1UL << i;
+                if (ints[i] == v) expectedInts |= 1UL << i;
+            }
+            Assert.Equal(expectedBytes, Masks.Equal(bytes, b));
+            Assert.Equal(expectedInts, Masks.Equal(ints, v));
+        }
+        Assert.Throws<ArgumentOutOfRangeException>(() => Masks.Equal(new byte[63], 0));
+        Assert.Throws<ArgumentOutOfRangeException>(() => Masks.Equal(new int[63], 0));
+    }
+
+    [Fact]
     public void NullArrays_AreNullOnEveryRow()
     {
         // An Arrow null array has no buffers: only null tests and logic apply to it.

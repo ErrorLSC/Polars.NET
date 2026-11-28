@@ -16,6 +16,58 @@ internal static class Masks
     public static int Words(int length) => (int)(((uint)length + 63) >> 6);
 
     /// <summary>The bits of the last word that are rows.</summary>
+    /// <summary>
+    /// A word of the first 64 bytes of <paramref name="bytes"/>: bit <c>i</c> set where byte <c>i</c> is
+    /// <paramref name="value"/>, by vector compares.
+    /// </summary>
+    public static ulong Equal(ReadOnlySpan<byte> bytes, byte value)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(bytes.Length, 64, nameof(bytes));
+        ref byte at = ref MemoryMarshal.GetReference(bytes);
+        if (Vector256.IsHardwareAccelerated)
+        {
+            Vector256<byte> c = Vector256.Create(value);
+            return Vector256.Equals(Vector256.LoadUnsafe(ref at), c).ExtractMostSignificantBits()
+                | (ulong)Vector256.Equals(Vector256.LoadUnsafe(ref at, 32), c).ExtractMostSignificantBits() << 32;
+        }
+        if (Vector128.IsHardwareAccelerated)
+        {
+            Vector128<byte> c = Vector128.Create(value);
+            return Vector128.Equals(Vector128.LoadUnsafe(ref at), c).ExtractMostSignificantBits()
+                | (ulong)Vector128.Equals(Vector128.LoadUnsafe(ref at, 16), c).ExtractMostSignificantBits() << 16
+                | (ulong)Vector128.Equals(Vector128.LoadUnsafe(ref at, 32), c).ExtractMostSignificantBits() << 32
+                | (ulong)Vector128.Equals(Vector128.LoadUnsafe(ref at, 48), c).ExtractMostSignificantBits() << 48;
+        }
+        ulong word = 0;
+        for (int i = 0; i < 64; i++) word |= (bytes[i] == value ? 1UL : 0) << i;
+        return word;
+    }
+
+    /// <summary>
+    /// A word of the first 64 values of <paramref name="values"/>: bit <c>i</c> set where value <c>i</c> is
+    /// <paramref name="value"/>, by vector compares.
+    /// </summary>
+    public static ulong Equal(ReadOnlySpan<int> values, int value)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(values.Length, 64, nameof(values));
+        ref int at = ref MemoryMarshal.GetReference(values);
+        ulong word = 0;
+        if (Vector256.IsHardwareAccelerated)
+        {
+            Vector256<int> c = Vector256.Create(value);
+            for (int k = 0; k < 8; k++) word |= (ulong)Vector256.Equals(Vector256.LoadUnsafe(ref at, (nuint)(8 * k)), c).ExtractMostSignificantBits() << (8 * k);
+            return word;
+        }
+        if (Vector128.IsHardwareAccelerated)
+        {
+            Vector128<int> c = Vector128.Create(value);
+            for (int k = 0; k < 16; k++) word |= (ulong)Vector128.Equals(Vector128.LoadUnsafe(ref at, (nuint)(4 * k)), c).ExtractMostSignificantBits() << (4 * k);
+            return word;
+        }
+        for (int i = 0; i < 64; i++) word |= (values[i] == value ? 1UL : 0) << i;
+        return word;
+    }
+
     public static ulong LastWord(int length) => (length & 63) == 0 ? ulong.MaxValue : (1UL << (length & 63)) - 1;
 
     /// <summary>Sets every row of the mask (or clears them), clearing the bits past the last row.</summary>

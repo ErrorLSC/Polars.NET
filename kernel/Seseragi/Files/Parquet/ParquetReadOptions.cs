@@ -192,9 +192,9 @@ internal enum ChunkReading
 
 /// <summary>
 /// How the bytes of a Parquet file opened by path are read. Reads through a mapping skip the copy of each page out of
-/// the operating system's page cache: in our measurements that pays for uncompressed fixed-width columns and for
-/// Snappy-compressed ones, and costs on uncompressed strings and Zstandard-compressed columns read on many threads,
-/// which <see cref="Auto"/> therefore keeps reading the ordinary way.
+/// the operating system's page cache: in our measurements that pays for uncompressed fixed-width columns, for
+/// uncompressed short strings and for Snappy-compressed columns, and costs on uncompressed long strings and
+/// Zstandard-compressed columns read on many threads, which <see cref="Auto"/> therefore keeps reading the ordinary way.
 /// </summary>
 /// <remarks>
 /// While a file is mapped, it must not be truncated by another process: reading pages that no longer exist ends the
@@ -210,8 +210,9 @@ public enum ParquetMemoryMap
     On,
 
     /// <summary>
-    /// Uncompressed fixed-width column chunks and Snappy-compressed ones decoded from the mapping; the others read page
-    /// by page (the default).
+    /// Decoded from the mapping: Snappy-compressed column chunks, uncompressed fixed-width ones, and uncompressed string
+    /// and binary ones without a dictionary averaging 16 bytes a value or less (by the footer's sizes); the others read
+    /// page by page (the default).
     /// </summary>
     Auto,
 }

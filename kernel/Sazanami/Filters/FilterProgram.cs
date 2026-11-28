@@ -3,7 +3,9 @@ using System.Numerics;
 using Apache.Arrow;
 using Apache.Arrow.Types;
 using Kaminari.Sazanami.Arrow.Interop;
+using Kaminari.Sazanami.Buffers;
 using Kaminari.Sazanami.Expressions;
+using Kaminari.Sazanami.Kernels;
 using static Kaminari.Sazanami.Filters.ValueTests;
 
 namespace Kaminari.Sazanami.Filters;
@@ -30,6 +32,35 @@ internal sealed class FilterProgram
 
     /// <summary>The columns the program reads, in the order <see cref="Evaluate"/> takes them.</summary>
     public IReadOnlyList<FilterColumn> Columns { get; }
+
+    /// <summary>
+    /// Whether column <paramref name="column"/> (strings or binaries) may come as a dictionary whose values are in
+    /// another layout of the same kind (plain offsets for views): only tests of its own values read it (each tested
+    /// once per entry), no expression and no predicate over several columns.
+    /// </summary>
+    public bool TakesDictionaries(int column)
+    {
+        if ((uint)column >= (uint)Columns.Count || !IsBytes(ValueType(Columns[column].Type))) return false;
+        return Plain(_root);
+
+        bool Plain(Step step) => step switch
+        {
+            Leaf leaf => leaf.Column != column || leaf.Test is not ExpressionTest,
+            Computed computed => !Reads(computed.Predicate),
+            All all => all.Operands.All(Plain),
+            Any any => any.Operands.All(Plain),
+            First first => first.Operands.All(Plain),
+            Negate negate => Plain(negate.Operand),
+            _ => true,
+        };
+
+        bool Reads(ValuePredicate predicate)
+        {
+            SortedSet<int> read = [];
+            predicate.CollectColumns(read);
+            return read.Contains(column);
+        }
+    }
 
     /// <summary>Checks a predicate against its columns and compiles it.</summary>
     /// <exception cref="ArgumentException">
@@ -274,7 +305,16 @@ internal sealed class FilterProgram
 
     /// <summary>Whether an array of <paramref name="actual"/> type serves a column declared <paramref name="declared"/> (dictionaries by their values).</summary>
     private static bool Matches(IArrowType declared, IArrowType actual) =>
-        ValueTypes.Same(declared, actual) && (actual is not DictionaryType dictionary || dictionary.IndexType is IntegerType);
+        (ValueTypes.Same(declared, actual) || actual is DictionaryType { ValueType: var values } && SameBytes(ValueType(declared), values))
+        && (actual is not DictionaryType dictionary || dictionary.IndexType is IntegerType);
+
+    /// <summary>Strings (or binaries) in two layouts: a dictionary's values as plain offsets for a column of views.</summary>
+    private static bool SameBytes(IArrowType declared, IArrowType values) => (declared, values) switch
+    {
+        (StringType or StringViewType, StringType or StringViewType) => true,
+        (BinaryType or BinaryViewType, BinaryType or BinaryViewType) => true,
+        _ => false,
+    };
 
     // ---------------------------------------------------------------------------------------------------------------
     // Evaluation
@@ -422,6 +462,7 @@ internal sealed class FilterProgram
                 case UInt8Type: Lookup(Values<byte>(data, length), dt, df, entries, test.NullIsTrue, t, f); break;
                 case Int16Type: Lookup(Values<short>(data, length), dt, df, entries, test.NullIsTrue, t, f); break;
                 case UInt16Type: Lookup(Values<ushort>(data, length), dt, df, entries, test.NullIsTrue, t, f); break;
+                case Int32Type when !nulls && FewEntries(Values<int>(data, length), dt, df, entries, t, f): break;
                 case Int32Type: Lookup(Values<int>(data, length), dt, df, entries, test.NullIsTrue, t, f); break;
                 case UInt32Type: Lookup(Values<uint>(data, length), dt, df, entries, test.NullIsTrue, t, f); break;
                 case Int64Type: Lookup(Values<long>(data, length), dt, df, entries, test.NullIsTrue, t, f); break;
@@ -435,27 +476,98 @@ internal sealed class FilterProgram
             ArrayPool<ulong>.Shared.Return(df);
         }
 
-        // On entry: f holds the valid rows. On exit: t and f the outcomes.
+        // Rows without nulls over entries that are all true or false, a few of them true (or false): the rows of those
+        // entries found by comparing indices, the others the other outcome. False when the shape is not that one (or an
+        // index is past the entries: the lookup reports it).
+        static bool FewEntries(ReadOnlySpan<int> indices, ulong[] dt, ulong[] df, int entries, Span<ulong> t, Span<ulong> f)
+        {
+            const int Few = 3; // the entries compared (e0, e1, e2 below)
+            int words = Masks.Words(entries), trues = 0, falses = 0;
+            for (int w = 0; w < words; w++)
+            {
+                ulong all = Masks.LastWord(w == words - 1 ? entries - (w << 6) : 64);
+                if ((dt[w] | df[w]) != all) return false; // a null entry
+                trues += BitOperations.PopCount(dt[w]);
+                falses += BitOperations.PopCount(df[w]);
+            }
+            bool onTrue = trues <= falses;
+            if (Math.Min(trues, falses) > Few || indices.Length < 64 || VectorKernels.MaxUnsigned(indices) >= (uint)entries) return false;
+            // The entries of the rarer outcome (-1: none), in locals: no stack buffer beside the hot loop.
+            int e0 = -1, e1 = -1, e2 = -1, count = 0;
+            ulong[] side = onTrue ? dt : df;
+            for (int e = 0; e < entries; e++)
+            {
+                if ((side[e >> 6] >> (e & 63) & 1) == 0) continue;
+                if (count == 0) e0 = e;
+                else if (count == 1) e1 = e;
+                else e2 = e;
+                count++;
+            }
+            int length = indices.Length, full = length >> 6;
+            for (int w = 0; w < full; w++)
+            {
+                ReadOnlySpan<int> block = indices.Slice(w << 6, 64);
+                ulong hit = count == 0 ? 0 : Masks.Equal(block, e0);
+                if (count > 1) hit |= Masks.Equal(block, e1);
+                if (count > 2) hit |= Masks.Equal(block, e2);
+                t[w] = onTrue ? hit : ~hit;
+                f[w] = onTrue ? ~hit : hit;
+            }
+            for (int i = full << 6; i < length; i++)
+            {
+                int index = indices[i];
+                bool listed = count > 0 && index == e0 || count > 1 && index == e1 || count > 2 && index == e2;
+                ulong bit = 1UL << (i & 63);
+                if (listed == onTrue) { t[i >> 6] |= bit; f[i >> 6] &= ~bit; }
+                else { t[i >> 6] &= ~bit; f[i >> 6] |= bit; }
+            }
+            if ((length & 63) != 0)
+            {
+                ulong last = Masks.LastWord(length);
+                t[full] &= last;
+                f[full] &= last;
+            }
+            return true;
+        }
+
+        // On entry: f holds the valid rows. On exit: t and f the outcomes. Each entry's outcome as a byte (1 true,
+        // 2 false, 0 null; 3 for an index past the entries), looked up per row 64 rows at a time, then made bits by
+        // vector compares.
         static void Lookup<TIndex>(ReadOnlySpan<TIndex> indices, ulong[] dt, ulong[] df, int entries, bool nullIsTrue, Span<ulong> t, Span<ulong> f)
             where TIndex : unmanaged, IBinaryInteger<TIndex>
         {
+            using var scratch = new NativeArray<byte>(entries + 64); // the entries' outcomes, then a block's rows
+            Span<byte> outcomes = scratch.AsSpan(0, entries + 64);
+            for (int e = 0; e < entries; e++)
+                outcomes[e] = (byte)((dt[e >> 6] >> (e & 63) & 1) | (df[e >> 6] >> (e & 63) & 1) << 1);
+            Span<byte> rows = outcomes.Slice(entries, 64);
             int length = indices.Length, words = Masks.Words(length);
             for (int w = 0; w < words; w++)
             {
                 int first = w << 6, n = Math.Min(64, length - first);
-                ulong valid = f[w], isTrue = 0, isFalse = 0;
+                ReadOnlySpan<TIndex> block = indices.Slice(first, n);
                 for (int k = 0; k < n; k++)
                 {
-                    if ((valid >> k & 1) == 0) continue;
-                    ulong entry = ulong.CreateTruncating(indices[first + k]);
-                    if (entry >= (ulong)entries) throw new InvalidDataException($"Dictionary index {indices[first + k]} is past its {entries} entries.");
-                    isTrue |= (dt[entry >> 6] >> (int)(entry & 63) & 1) << k;
-                    isFalse |= (df[entry >> 6] >> (int)(entry & 63) & 1) << k;
+                    ulong entry = ulong.CreateTruncating(block[k]);
+                    rows[k] = entry < (ulong)entries ? outcomes[(int)entry] : (byte)3;
                 }
+                rows[n..].Clear();
+                ulong valid = f[w], isTrue = Masks.Equal(rows, 1) & valid, isFalse = Masks.Equal(rows, 2) & valid;
+                if ((Masks.Equal(rows, 3) & valid) != 0) throw PastEntries(block, valid, entries);
                 if (nullIsTrue) isTrue |= ~valid & Masks.LastWord(n);
                 t[w] = isTrue;
                 f[w] = isFalse;
             }
+        }
+
+        static InvalidDataException PastEntries<TIndex>(ReadOnlySpan<TIndex> block, ulong valid, int entries) where TIndex : unmanaged, IBinaryInteger<TIndex>
+        {
+            for (int k = 0; k < block.Length; k++)
+            {
+                if ((valid >> k & 1) != 0 && ulong.CreateTruncating(block[k]) >= (ulong)entries)
+                    return new InvalidDataException($"Dictionary index {block[k]} is past its {entries} entries.");
+            }
+            return new InvalidDataException($"A dictionary index is past its {entries} entries.");
         }
     }
 

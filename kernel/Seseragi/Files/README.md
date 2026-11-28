@@ -194,7 +194,8 @@ or a fixed-size list of another length is an error. Variants read as the struct 
 values, a map keeping its key and value whatever the path; other leaves are not read), and row groups chosen (`RowGroups`).
 Column chunks are read as the source suits: sliced when it lives in memory, page by page from a local file, and fetched
 with few ranged reads (nearby chunks coalesced) from other sources; a local file can also be read through a memory
-mapping (`MemoryMap`: automatic by default — Snappy-compressed and uncompressed fixed-width chunks —, on, or off; only
+mapping (`MemoryMap`: automatic by default — Snappy-compressed chunks, uncompressed fixed-width ones, and uncompressed
+strings without a dictionary of at most 16 bytes a value —, on, or off; only
 files opened by path are mapped, never a stream; a mapped file must not be truncated while read). Pages: data pages v1 and v2, dictionary pages; PLAIN, dictionary (RLE and the
 deprecated PLAIN_DICTIONARY), RLE booleans, DELTA_BINARY_PACKED, DELTA_LENGTH_BYTE_ARRAY, DELTA_BYTE_ARRAY and
 BYTE_STREAM_SPLIT (on every physical type the spec allows them for); levels in the RLE / bit-packing hybrid or the deprecated BIT_PACKED;

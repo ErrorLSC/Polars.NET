@@ -4,6 +4,7 @@ using Apache.Arrow.Types;
 using Kaminari.Samidare.IR;
 using Kaminari.Sazanami.Rows;
 using Kaminari.Seseragi.Files.Parquet;
+using Microsoft.FSharp.Collections;
 using static Seseragi.Files.Tests.Parquet.ParquetPruningTests;
 
 namespace Seseragi.Files.Tests.Parquet;
@@ -20,7 +21,7 @@ public class ParquetFilterRowsTests
     private const string RowColumn = "__row";
 
     private sealed record Config(LateMaterialization Mode, ChunkReading Reading, int Parallelism, int BatchSize, RowRanges? Rows, long? MaxRows,
-        string[]? Columns, bool Async, bool LevelsAsBits = true)
+        string[]? Columns, bool Async, bool LevelsAsBits = true, bool Views = true)
     {
         public ParquetReadOptions Options(ScalarExpr? filter) => new()
         {
@@ -35,6 +36,7 @@ public class ParquetFilterRowsTests
             Columns = Columns,
             RowIndexColumn = RowColumn,
             LevelsAsBits = LevelsAsBits,
+            ViewTypes = Views,
         };
     }
 
@@ -73,6 +75,9 @@ public class ParquetFilterRowsTests
             using (batch)
             {
                 if (options.FilterRows) Assert.True(batch.Length > 0, "an empty batch delivered");
+                for (int c = 0; c < batch.ColumnCount; c++)
+                    Assert.True(batch.Schema.GetFieldByIndex(c).DataType.TypeId == batch.Column(c).Data.DataType.TypeId,
+                        $"column {batch.Schema.GetFieldByIndex(c).Name} is {batch.Column(c).Data.DataType.Name}, not {batch.Schema.GetFieldByIndex(c).DataType.Name}");
                 var index = (Int64Array)batch.Column(RowColumn);
                 for (int i = 0; i < batch.Length; i++)
                 {
@@ -204,6 +209,84 @@ public class ParquetFilterRowsTests
     // ------------------------------------------------------------------
     // Particular cases
     // ------------------------------------------------------------------
+
+    /// <summary>
+    /// String columns the filter tests are decoded as dictionaries (each entry tested once): a few values with nulls,
+    /// empty and non-ASCII strings; more entries than a batch takes whole; a dictionary that fills up and falls back
+    /// to plain pages. Every way of reading, views on and off, the column selected or not.
+    /// </summary>
+    [Fact]
+    public void DictionaryEncodedStrings_AreFilteredByTheirEntries()
+    {
+        string path = Path.Combine(Directory.CreateTempSubdirectory("dict-filter-").FullName, "d.parquet");
+        try
+        {
+            const int Count = 30_000;
+            string?[] few = [null, "", "a", "é", "group07", "x long value past twelve bytes", "ab"];
+            var ids = new Int64Array.Builder();
+            var s = new StringArray.Builder();
+            var many = new StringArray.Builder();
+            var fallback = new StringArray.Builder();
+            var tags = new StringArray.Builder();
+            string padding = new('x', 120);
+            for (int i = 0; i < Count; i++)
+            {
+                ids.Append(i);
+                if (few[i * 7 % few.Length] is { } v) s.Append(v); else s.AppendNull();
+                many.Append($"m{i * 31 % 6000:D5}");
+                // 9 000 values of 125 bytes a row group: the dictionary fills up (1 MiB) and the chunk goes on plainly.
+                if (i % 11 == 0) fallback.AppendNull(); else fallback.Append($"{i * 7 % 9000:D4}{padding}");
+                tags.Append($"t{i % 8}");
+            }
+            var schema = new Apache.Arrow.Schema([new Field("id", Int64Type.Default, false), new Field("s", StringType.Default, true),
+                new Field("many", StringType.Default, false), new Field("fb", StringType.Default, true), new Field("t", StringType.Default, false)], null);
+            using (var writer = ParquetWriter.Create(path, schema, new ParquetWriteOptions { RowGroupRows = 10_000, DataPageRows = 700 }))
+            {
+                writer.Write(new RecordBatch(schema, [ids.Build(), s.Build(), many.Build(), fallback.Build(), tags.Build()], Count));
+                writer.Complete();
+            }
+            FileRows rows = FileRows.Read(path)!;
+            ScalarExpr Eq(string column, string value) => Bin(BinaryOp.Eq, Col(column), Lit(LiteralValue.NewString(value)));
+            ScalarExpr In(string column, params string[] values) =>
+                ScalarExpr.NewInList(Col(column), InListSource.NewLiterals(ListModule.OfSeq(values.Select(LiteralValue.NewString))), false, false);
+            ScalarExpr[] filters =
+            [
+                Eq("s", "group07"),
+                Eq("s", ""),
+                Not(Eq("s", "a")),
+                In("s", "é", "ab", "x long value past twelve bytes", "zz"),
+                ScalarExpr.NewUnary(UnaryOp.IsNull, Col("s")),
+                Bin(BinaryOp.StartsWith, Col("s"), Lit(LiteralValue.NewString("x"))),
+                Eq("many", "m00042"),
+                In("many", "m00001", "m05999", "m03000"),
+                Bin(BinaryOp.Lt, Col("many"), Lit(LiteralValue.NewString("m00100"))),
+                Eq("fb", $"0007{new string('x', 120)}"),
+                Not(Eq("fb", $"8999{new string('x', 120)}")),
+                Bin(BinaryOp.Or, Eq("s", "a"), Eq("fb", $"0899{new string('x', 120)}")),
+                Eq("t", "t3"),
+                In("t", "t1", "t4", "t6"),
+                Not(In("t", "t0", "t2", "t7")),
+                In("t", "t1", "t2", "t3", "t5"),
+                Bin(BinaryOp.Eq, Col("s"), Col("s")),
+                Bin(BinaryOp.And, Eq("s", "é"), Bin(BinaryOp.Gt, Col("id"), Lit(LiteralValue.NewInt64(20_000)))),
+            ];
+            int dense = 0, sparse = 0, masked = 0, round = 0;
+            foreach (ScalarExpr filter in filters)
+            {
+                foreach (var (mode, batch, views, columns) in ((LateMaterialization, int, bool, string[]?)[])
+                    [(LateMaterialization.Auto, 65_536, true, null), (LateMaterialization.Masked, 100, true, ["id"]), (LateMaterialization.Dense, 7, false, ["s", "fb"]),
+                     (LateMaterialization.Sparse, 65_536, false, null), (LateMaterialization.Masked, 1000, false, ["many", "s", "t"])])
+                {
+                    var config = new Config(mode, ChunkReading.Stream, round++ % 2 == 0 ? 1 : 4, batch, null, null, columns, Async: false, Views: views);
+                    Assert.True(Check(rows, filter, config, "dictionary strings", ref dense, ref sparse, ref masked), $"{Show(filter)} not evaluated exactly");
+                }
+            }
+        }
+        finally
+        {
+            Directory.Delete(Path.GetDirectoryName(path)!, recursive: true);
+        }
+    }
 
     [Fact]
     public void FiltersExactly_TellsWhetherEveryConjunctIsEvaluated()

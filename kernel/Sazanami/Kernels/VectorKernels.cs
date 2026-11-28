@@ -6,6 +6,20 @@ namespace Kaminari.Sazanami.Kernels;
 /// <summary>Small vector kernels over spans, written with the portable vector APIs (the same code on x64 and arm64).</summary>
 internal static class VectorKernels
 {
+    /// <summary>Adds <paramref name="value"/> to every value (wrapping), with vector adds.</summary>
+    public static void AddInPlace(Span<int> values, int value)
+    {
+        int i = 0;
+        if (Vector.IsHardwareAccelerated && values.Length >= Vector<int>.Count)
+        {
+            var add = new Vector<int>(value);
+            Span<Vector<int>> vectors = MemoryMarshal.Cast<int, Vector<int>>(values);
+            for (int v = 0; v < vectors.Length; v++) vectors[v] += add;
+            i = vectors.Length * Vector<int>.Count;
+        }
+        for (; i < values.Length; i++) values[i] = unchecked(values[i] + value);
+    }
+
     /// <summary>The largest value read as unsigned (a negative index counts as huge), with vector compares.</summary>
     public static uint MaxUnsigned(ReadOnlySpan<int> values)
     {

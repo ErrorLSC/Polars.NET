@@ -545,8 +545,40 @@ internal sealed unsafe class RelayoutConversion(IArrowType target) : ArrowConver
         {
             (StringType or BinaryType, LargeStringType or LargeBinaryType) => Widen(export, source),
             (LargeStringType or LargeBinaryType, StringType or BinaryType) when Narrows(source) => Narrow(export, source),
+            (StringType or BinaryType, StringViewType or BinaryViewType) => Views(export, source),
             _ => Copy(export, source, Target),
         };
+
+    /// <summary>
+    /// 32-bit offsets into views: values of up to 12 bytes inline, longer ones pointing into the source's value bytes
+    /// (shared, or copied once when the source's memory is not a native batch's). No value is copied one by one.
+    /// </summary>
+    private static NativeCArray* Views(NativeBatchExport export, ArrayData source)
+    {
+        var (validity, nulls) = Validity(export, source);
+        int length = source.Length;
+        ReadOnlySpan<int> offsets = source.Buffers[1].Span.CastTo<int>().Slice(source.Offset, length + 1);
+        ReadOnlySpan<byte> data = source.Buffers[2].Span;
+        var views = (byte*)export.AllocateUninitialized(16L * length);
+        bool pointing = false;
+        for (int i = 0; i < length; i++)
+        {
+            int start = offsets[i], size = offsets[i + 1] - start;
+            var view = new Span<byte>(views + 16L * i, 16);
+            view.Clear();
+            System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(view, size);
+            if (size <= 12) data.Slice(start, size).CopyTo(view[4..]);
+            else
+            {
+                data.Slice(start, 4).CopyTo(view[4..]);
+                System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(view[12..], start); // buffer 0 at view[8..12]
+                pointing = true;
+            }
+        }
+        return pointing
+            ? export.NewArray(length, nulls, [validity, (nint)views, Data(export, source.Buffers[2])], [])
+            : export.NewArray(length, nulls, [validity, (nint)views], []);
+    }
 
     /// <summary>The bytes of value <paramref name="i"/> of a string or binary array of any layout.</summary>
     internal static ReadOnlySpan<byte> Bytes(IArrowArray values, int i) => values switch

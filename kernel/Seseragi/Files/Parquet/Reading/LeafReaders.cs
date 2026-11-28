@@ -534,14 +534,24 @@ internal sealed class BinaryViewLeafReader(PageReader pages, SchemaNode leaf, Le
 
 /// <summary>
 /// BYTE_ARRAY values output dictionary-encoded (the file's Arrow schema marks the column so): each batch gets its
-/// own dictionary of distinct values, in first-seen order.
+/// own dictionary of distinct values, in first-seen order. Without <paramref name="deduplicate"/> (a filter's column,
+/// tested once per entry) nothing is hashed: a batch's dictionary holds the entries of the chunk's dictionary page its
+/// rows use, in first-seen order, and one entry per value of a page not dictionary-encoded.
 /// </summary>
-internal sealed class DictionaryOutputLeafReader(PageReader pages, SchemaNode leaf, LeafType type, long valueCount)
+internal sealed class DictionaryOutputLeafReader(PageReader pages, SchemaNode leaf, LeafType type, long valueCount, bool deduplicate = true)
     : LeafReader(pages, leaf, type, valueCount)
 {
     private readonly NativeDictionaryBuilder _builder = new((DictionaryType)type.ArrowType);
     private readonly bool _utf8 = type.Kind == ValueKind.Utf8;
     private readonly Dictionary<byte[], int> _batchEntries = new(ByteArrayComparer.Instance);
+    private int _entries; // in the batch's dictionary
+    private int _wholeAt = -1; // where the chunk's dictionary page starts in the batch's dictionary, when put there whole
+
+    /// <summary>
+    /// The most entries of a dictionary page a filter's batch takes whole (its rows' indices copied as they are) rather
+    /// than the entries its rows use: testing a few thousand entries per batch costs less than mapping every row.
+    /// </summary>
+    internal const int WholeDictionaryEntries = 4096;
     private int[] _offsets = [0];
     private byte[] _data = [];
     private int[] _fileToBatch = [];  // dictionary page entry → batch entry, -1 until seen in this batch
@@ -559,22 +569,45 @@ internal sealed class DictionaryOutputLeafReader(PageReader pages, SchemaNode le
     protected override void OnBatchExported()
     {
         _batchEntries.Clear();
+        _entries = 0;
+        _wholeAt = -1;
         _fileToBatch.AsSpan().Fill(-1);
     }
 
     private int Entry(ReadOnlySpan<byte> value)
     {
+        if (!deduplicate) return Added(value);
         byte[] key = value.ToArray();
         if (_batchEntries.TryGetValue(key, out int index)) return index;
-        index = _batchEntries.Count;
-        _batchEntries.Add(key, index);
+        _batchEntries.Add(key, _entries);
+        return Added(value);
+    }
+
+    private int Added(ReadOnlySpan<byte> value)
+    {
         _builder.Entries.Append(value);
-        return index;
+        return _entries++;
     }
 
     protected override void AppendPlain(int rows, SlotMask mask, int valid, ReadOnlySpan<byte> values, ref int position)
     {
         ReadOnlySpan<byte> present = mask.IsEmpty ? Ones(rows) : MaskBytes(mask);
+        if (!deduplicate)
+        {
+            // An entry per value, appended in bulk (UTF-8 checked once for an ASCII run of values).
+            PlainScratch.Ensure(ref _starts, ref _lengths, valid);
+            int from = position;
+            var (total, _) = LeafReaders.ParsePlain(values, ref position, _starts.AsSpan(0, valid), _lengths.AsSpan(0, valid), int.MaxValue);
+            if (_utf8) LeafReaders.ValidateUtf8(values, from, position, _starts.AsSpan(0, valid), _lengths.AsSpan(0, valid));
+            _builder.Entries.AppendValues(values, _starts.AsSpan(0, valid), _lengths.AsSpan(0, valid), default, total);
+            Span<int> added = _builder.AppendSlots(present);
+            for (int i = 0, e = _entries; i < rows; i++)
+            {
+                if (present[i] != 0) added[i] = e++;
+            }
+            _entries += valid;
+            return;
+        }
         Span<int> slots = _builder.AppendSlots(present);
         for (int i = 0; i < rows; i++)
         {
@@ -585,6 +618,14 @@ internal sealed class DictionaryOutputLeafReader(PageReader pages, SchemaNode le
         }
     }
 
+    private int[] _starts = [], _lengths = [];
+
+    public override void Dispose()
+    {
+        PlainScratch.Return(ref _starts, ref _lengths);
+        base.Dispose();
+    }
+
     protected override void SkipPlain(int valid, ReadOnlySpan<byte> values, ref int position)
     {
         for (int i = 0; i < valid; i++) LeafReaders.NextByteArray(values, ref position);
@@ -592,6 +633,11 @@ internal sealed class DictionaryOutputLeafReader(PageReader pages, SchemaNode le
 
     protected override void AppendFromDictionary(int rows, SlotMask mask, ReadOnlySpan<int> indices)
     {
+        if (!deduplicate && DictionaryCount <= WholeDictionaryEntries)
+        {
+            AppendWhole(mask, indices);
+            return;
+        }
         ReadOnlySpan<byte> present = mask.IsEmpty ? Ones(rows) : MaskBytes(mask);
         Span<int> slots = _builder.AppendSlots(present);
         for (int i = 0, j = 0; i < rows; i++)
@@ -601,6 +647,29 @@ internal sealed class DictionaryOutputLeafReader(PageReader pages, SchemaNode le
             int batch = _fileToBatch[file];
             if (batch < 0) _fileToBatch[file] = batch = Entry(_data.AsSpan(_offsets[file], _offsets[file + 1] - _offsets[file]));
             slots[i] = batch;
+        }
+    }
+
+    /// <summary>Rows of the chunk's dictionary page, the page put whole into the batch's dictionary (once per batch).</summary>
+    private void AppendWhole(SlotMask mask, ReadOnlySpan<int> indices)
+    {
+        if (_wholeAt < 0)
+        {
+            _wholeAt = _entries;
+            for (int e = 0; e < DictionaryCount; e++) Added(_data.AsSpan(_offsets[e], _offsets[e + 1] - _offsets[e]));
+        }
+        int at = _wholeAt;
+        if (mask.IsEmpty)
+        {
+            // Every row valid: the indices as they are, no mask built or slots cleared.
+            _builder.AppendIndices(indices, at);
+            return;
+        }
+        ReadOnlySpan<byte> present = MaskBytes(mask);
+        Span<int> slots = _builder.AppendSlots(present);
+        for (int i = 0, j = 0; i < slots.Length; i++)
+        {
+            if (present[i] != 0) slots[i] = indices[j++] + at;
         }
     }
 
