@@ -31,6 +31,9 @@ internal sealed class ReadNode
 
     /// <summary>For a leaf: its Parquet node and value mapping.</summary>
     public SchemaNode? Leaf { get; init; }
+
+    /// <summary>The Parquet node the Arrow node is read from (a struct's children are its node's, in order); null for a map's entries.</summary>
+    public SchemaNode? Node { get; init; }
     public LeafType? LeafType { get; init; }
 
     public int SlotDef { get; init; }
@@ -52,7 +55,7 @@ internal sealed class ReadNode
 
     public ReadNode With(Field field, ReadNode[] children) => new()
     {
-        Field = field, Kind = Kind, Children = children, Leaf = Leaf, LeafType = LeafType, SlotDef = SlotDef, SlotRep = SlotRep,
+        Field = field, Kind = Kind, Children = children, Leaf = Leaf, Node = Node, LeafType = LeafType, SlotDef = SlotDef, SlotRep = SlotRep,
         NullDef = NullDef, ElementDef = ElementDef, ElementRep = ElementRep, RejectNulls = RejectNulls,
     };
 }
@@ -185,6 +188,7 @@ internal static class ArrowMapping
             {
                 Field = MakeField(node.Name, new ListType(element.Field), false, node, hint),
                 Kind = ReadKind.List,
+                Node = node,
                 Children = [element],
                 SlotDef = ancestor, SlotRep = node.MaxRepetition - 1, NullDef = ancestor,
                 ElementDef = node.MaxDefinition, ElementRep = node.MaxRepetition,
@@ -207,7 +211,7 @@ internal static class ArrowMapping
             return new ReadNode
             {
                 Field = MakeField(name, leaf.ArrowType, nullable, node, hint),
-                Kind = ReadKind.Leaf, Leaf = node, LeafType = leaf,
+                Kind = ReadKind.Leaf, Leaf = node, Node = node, LeafType = leaf,
                 SlotDef = slotDef, SlotRep = node.MaxRepetition, NullDef = nullDef,
             };
         }
@@ -228,7 +232,7 @@ internal static class ArrowMapping
         if (e.LogicalType?.Kind == LogicalTypeKind.Variant) field = WithMetadata(field, "ARROW:extension:name", "arrow.parquet.variant");
         return new ReadNode
         {
-            Field = field, Kind = ReadKind.Struct, Children = children,
+            Field = field, Kind = ReadKind.Struct, Children = children, Node = node,
             SlotDef = slotDef, SlotRep = node.MaxRepetition, NullDef = nullDef,
         };
     }
@@ -261,6 +265,7 @@ internal static class ArrowMapping
         {
             Field = MakeField(name, type, nullable, node, hint),
             Kind = fixedSizeList ? ReadKind.FixedSizeList : ReadKind.List,
+            Node = node,
             Children = [element],
             SlotDef = slotDef, SlotRep = node.MaxRepetition, NullDef = nullDef,
             ElementDef = repeated.MaxDefinition, ElementRep = repeated.MaxRepetition,
@@ -283,7 +288,7 @@ internal static class ArrowMapping
             return new ReadNode
             {
                 Field = MakeField(name, new ListType(keys.Field), nullable, node, hint),
-                Kind = ReadKind.List, Children = [keys],
+                Kind = ReadKind.List, Children = [keys], Node = node,
                 SlotDef = slotDef, SlotRep = node.MaxRepetition, NullDef = nullDef,
                 ElementDef = keyValue.MaxDefinition, ElementRep = keyValue.MaxRepetition,
             };
@@ -300,7 +305,7 @@ internal static class ArrowMapping
         return new ReadNode
         {
             Field = MakeField(name, mapType, nullable, node, hint),
-            Kind = ReadKind.Map, Children = [entries],
+            Kind = ReadKind.Map, Children = [entries], Node = node,
             SlotDef = slotDef, SlotRep = node.MaxRepetition, NullDef = nullDef,
             ElementDef = keyValue.MaxDefinition, ElementRep = keyValue.MaxRepetition,
         };
@@ -394,7 +399,7 @@ internal static class ReadNodeExtensions
 {
     public static ReadNode WithRejectNulls(this ReadNode node) => new()
     {
-        Field = node.Field, Kind = node.Kind, Children = node.Children, Leaf = node.Leaf, LeafType = node.LeafType,
+        Field = node.Field, Kind = node.Kind, Children = node.Children, Leaf = node.Leaf, Node = node.Node, LeafType = node.LeafType,
         SlotDef = node.SlotDef, SlotRep = node.SlotRep, NullDef = node.NullDef, ElementDef = node.ElementDef,
         ElementRep = node.ElementRep, RejectNulls = node.Kind == ReadKind.Leaf,
     };

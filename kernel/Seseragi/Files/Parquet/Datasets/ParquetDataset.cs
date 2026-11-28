@@ -33,6 +33,9 @@ public sealed class ParquetDataset : IDisposable, IAsyncDisposable
     /// <summary>The first file's footer, when the dataset's columns are that file's (kept: the schema came from it).</summary>
     private readonly ParquetMetadata? _first;
 
+    /// <summary>How the files are read by field id (<see cref="ParquetFieldMatching.ByFieldId"/>); null by name.</summary>
+    internal FieldIdProjection? Projection { get; }
+
     private ParquetDataset(IFileStore store, ParquetDatasetOptions options, ParquetDatasetFile[] files, KeptFooters kept, FooterInterner interner,
         ParquetMetadata? first, Apache.Arrow.Schema fileSchema, Partitions? partitions)
     {
@@ -47,6 +50,8 @@ public sealed class ParquetDataset : IDisposable, IAsyncDisposable
         FileSchema = fileSchema;
         if (options.UnifyDictionaries && options.Schema is { } declared) fileSchema = DictionaryUnifier.Declared(fileSchema, declared);
         Partitions = partitions;
+        if (options.FieldMatching == ParquetFieldMatching.ByFieldId)
+            Projection = new FieldIdProjection(options.Schema!, options.NameMapping, name => partitions?.IndexOf(name) >= 0 || name == options.FilePathColumn);
         // The files' columns (a partition column of the same name in its place: the path's value wins), then the
         // other partition columns, then the file path.
         List<Field> fields = [.. fileSchema.FieldsList.Select(f => partitions?.IndexOf(f.Name) is int p and >= 0

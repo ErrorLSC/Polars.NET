@@ -69,7 +69,11 @@ timestamps of another zone, struct fields matched by name, list and map elements
 values and into wider indices, plain, large and view layouts of strings, binaries and lists), or with `AllowLossyCasts` by approximating ones (integers and decimals into floats,
 narrower floats, coarser time units rounded down); wall-clock times and instants, strings and numbers never mix.
 Columns and struct fields beyond the dataset's are not read; those a file lacks are an error naming the file and the
-way out, or nulls (`AllowMissingColumns`; always when united). Polars Enums (at any depth) must have the same
+way out, or nulls (`AllowMissingColumns`; always when united). With `FieldMatching = ParquetFieldMatching.ByFieldId`
+(and a given `Schema` whose columns and struct fields carry `PARQUET:field_id`) files' columns and struct fields match
+by field id instead, as Iceberg tables do: renamed, reordered, dropped and re-added columns read right, at any depth
+(through lists and maps), under the schema's names; fields without a matching id are not read; files written without
+ids take theirs from a `NameMapping` (Iceberg's `schema.name-mapping.default`, `NameMapping.Parse`). Polars Enums (at any depth) must have the same
 categories in every file, and an Enum never meets a column that is none, unless the given `Schema` declares the column
 as plain values. `UnifyDictionaries` reads every dictionary column (at any depth) with one dictionary for the dataset:
 values numbered as first seen, indices of the type the given `Schema` declares (else Int32; more distinct values than

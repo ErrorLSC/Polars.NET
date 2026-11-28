@@ -55,7 +55,24 @@ public sealed class ParquetFile : IDisposable, IAsyncDisposable
     private Apache.Arrow.Schema? _schema;
 
     /// <summary>The file's schema and what is derived from it (shared with the files of a dataset of the same schema).</summary>
-    internal SchemaShape Shape => Thrift.Shape ?? LazyInitializer.EnsureInitialized(ref _shape, () => SchemaShape.Of(Thrift));
+    internal SchemaShape Shape => _projected ?? Thrift.Shape ?? LazyInitializer.EnsureInitialized(ref _shape, () => SchemaShape.Of(Thrift));
+
+    private SchemaShape? _projected;
+
+    /// <summary>
+    /// The file's own shape, whatever <see cref="Project"/> set (what a projection is made from).
+    /// </summary>
+    internal SchemaShape OwnShape => Thrift.Shape ?? LazyInitializer.EnsureInitialized(ref _shape, () => SchemaShape.Of(Thrift));
+
+    /// <summary>
+    /// Reads the file through <paramref name="shape"/>: its own schema elements renamed (a dataset matching columns by
+    /// field id), before any reader is opened. Readers and <see cref="Schema"/> see the renamed columns.
+    /// </summary>
+    internal void Project(SchemaShape shape)
+    {
+        if (_schema is not null) throw new InvalidOperationException("The file's schema was read before it was projected.");
+        _projected = shape;
+    }
 
     /// <summary>The schema tree.</summary>
     /// <exception cref="ParquetFormatException">A leaf has an unknown physical type, or the tree nests too deeply.</exception>

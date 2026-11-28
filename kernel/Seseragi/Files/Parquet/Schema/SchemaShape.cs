@@ -25,6 +25,32 @@ internal sealed class SchemaShape(SchemaElement[] elements, string? arrowSchema)
     /// <summary>The <c>ARROW:schema</c> value (base64), or null.</summary>
     public string? ArrowSchema => arrowSchema;
 
+    /// <summary>The Arrow schema the writer stored (parsed once), or null.</summary>
+    public Apache.Arrow.Schema? StoredSchema
+    {
+        get
+        {
+            lock (_lock)
+            {
+                if (!_storedRead)
+                {
+                    _stored = ArrowMapping.StoredArrowSchema(arrowSchema);
+                    _storedRead = true;
+                }
+                return _stored;
+            }
+        }
+    }
+
+    /// <summary>A shape of other elements (a file's, renamed) with the stored Arrow schema already read (renamed alike).</summary>
+    public static SchemaShape WithStored(SchemaElement[] elements, Apache.Arrow.Schema? stored)
+    {
+        var shape = new SchemaShape(elements, null);
+        shape._stored = stored;
+        shape._storedRead = true;
+        return shape;
+    }
+
     /// <summary>The shape of a footer: its dataset's shared one, or one of its own.</summary>
     public static SchemaShape Of(FileMetaData meta) => meta.Shape ?? new SchemaShape(meta.Schema, ArrowMapping.ArrowSchemaValue(meta.KeyValueMetadata));
 

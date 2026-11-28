@@ -547,7 +547,20 @@ public sealed class ParquetDatasetReader : IDisposable, IAsyncDisposable
     /// <summary>Opens a file (its footer from before when there is one, kept for the next reads when worth it).</summary>
     private async ValueTask<ParquetFile> OpenAsync(int index, bool useAsync, CancellationToken ct)
     {
-        return await ParquetDataset.OpenFileAsync(_dataset.Store, _dataset.Files[index], _dataset.Footer(index), _dataset.Options.Decryption, useAsync, ct, _dataset.Footers, index, _dataset.Interner).ConfigureAwait(false);
+        ParquetFile file = await ParquetDataset.OpenFileAsync(_dataset.Store, _dataset.Files[index], _dataset.Footer(index), _dataset.Options.Decryption, useAsync, ct, _dataset.Footers, index, _dataset.Interner).ConfigureAwait(false);
+        if (_dataset.Projection is { } projection)
+        {
+            try
+            {
+                file.Project(projection.Of(file));
+            }
+            catch (ParquetFormatException e)
+            {
+                await file.DisposeAsync().ConfigureAwait(false);
+                throw ParquetDataset.InFile(PathOf(index), e);
+            }
+        }
+        return file;
     }
 
     /// <summary>A file's row count as its reader numbers rows (the row groups' counts).</summary>
