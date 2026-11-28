@@ -189,7 +189,7 @@ public sealed class IpcDataset : IDisposable, IAsyncDisposable
         options ??= new IpcDatasetOptions();
         options.Validate();
         var (store, files, hiveStart) = await DatasetFiles.ExpandAsync(inputs, options, ct).ConfigureAwait(false);
-        return await FromFilesAsync(store, options, [.. files.Select(f => new IpcDatasetFile(f.Path, f.Size))], hiveStart, useAsync, ct).ConfigureAwait(false);
+        return await FromFilesAsync(store, options, [.. files.Select(f => new IpcDatasetFile(f.Path, f.Size) { Listed = f.Listed })], hiveStart, useAsync, ct).ConfigureAwait(false);
     }
 
     private static async ValueTask<IpcDataset> OpenCoreAsync(IpcDatasetFile[] files, IpcDatasetOptions? options, bool useAsync, CancellationToken ct)
@@ -216,14 +216,14 @@ public sealed class IpcDataset : IDisposable, IAsyncDisposable
             await Parallel.ForEachAsync(Enumerable.Range(0, files.Length), new ParallelOptions { MaxDegreeOfParallelism = FootersAtOnce, CancellationToken = ct },
                 async (i, token) =>
                 {
-                    await using IpcFile file = await OpenFileAsync(store, files[i], kept, i, map: true, useAsync: true, token).ConfigureAwait(false);
+                    await using IpcFile file = await OpenFileAsync(store, files[i], kept, i, map: true, useAsync: true, token, options.FooterCache).ConfigureAwait(false);
                     schemas[i] = file.Schema;
                 }).ConfigureAwait(false);
             schema = DatasetFiles.Union([.. files.Select((f, i) => (f.Path, schemas[i]))], options, message => new IpcFormatException(message), IpcDatasetTypes.Common);
         }
         else
         {
-            await using IpcFile first = await OpenFileAsync(store, files[0], kept, 0, map: true, useAsync, ct).ConfigureAwait(false);
+            await using IpcFile first = await OpenFileAsync(store, files[0], kept, 0, map: true, useAsync, ct, options.FooterCache).ConfigureAwait(false);
             schema = Nullable(first.Schema);
         }
         if (schema.FieldsList.GroupBy(f => f.Name, StringComparer.Ordinal).FirstOrDefault(g => g.Count() > 1) is { } twice)
@@ -252,39 +252,70 @@ public sealed class IpcDataset : IDisposable, IAsyncDisposable
     /// <summary>
     /// Opens file <paramref name="index"/> of the store (owned by the <see cref="IpcFile"/>); errors name the file. Its
     /// footer comes from <paramref name="kept"/> when kept there (with its size and version: no request), else it is read
-    /// and kept when that is worth it (see <see cref="KeptFooters"/>). A local stream file is scanned through its mapping
-    /// when <paramref name="map"/> says so.
+    /// and kept when that is worth it (see <see cref="KeptFooters"/>), in <paramref name="cache"/> too (shared between
+    /// scans: a footer kept there is taken instead of read). A local stream file is scanned through its mapping when
+    /// <paramref name="map"/> says so.
     /// </summary>
     internal static async ValueTask<IpcFile> OpenFileAsync(IFileStore store, IpcDatasetFile file, KeptFooters kept, int index, bool map, bool useAsync,
-        CancellationToken ct)
+        CancellationToken ct, FooterCache? cache = null)
     {
         ReadOnlyMemory<byte>? footer = kept.Get(index);
-        StoredFile? known = footer is not null && kept.Version(index) is { } version ? version with { Path = file.Path }
-            : file.Size is long size ? new StoredFile(file.Path, size) : null;
-        IRandomAccess source;
+        FooterLease lease = default;
+        bool shared = false;
+        // A footer another scan read, for a file of this size and version.
+        if (footer is null && cache is not null && file.Size is long listed && cache.TryGet(store, FooterCache.Format.Ipc, file.Path, listed, file.Listed, out lease))
+        {
+            shared = true;
+            footer = lease.Memory;
+            kept.Keep(index, lease.Span, lease.Version);
+        }
         try
         {
-            source = known is { } stored
-                ? await store.OpenAsync(stored, ct).ConfigureAwait(false)
-                : await store.OpenAsync(file.Path, ct).ConfigureAwait(false) ?? throw new FileNotFoundException($"'{file.Path}' does not exist.", file.Path);
+            StoredFile? known = shared ? lease.Version with { Path = file.Path }
+                : footer is not null && kept.Version(index) is { } version ? version with { Path = file.Path }
+                : file.Size is long size ? new StoredFile(file.Path, size) : null;
+            IRandomAccess source;
+            try
+            {
+                source = known is { } stored
+                    ? await store.OpenAsync(stored, ct).ConfigureAwait(false)
+                    : await store.OpenAsync(file.Path, ct).ConfigureAwait(false) ?? throw new FileNotFoundException($"'{file.Path}' does not exist.", file.Path);
+            }
+            catch (IOException e) when (DatasetFiles.Unnamed(e, file.Path))
+            {
+                throw DatasetFiles.InFile(file.Path, e);
+            }
+            // A file named alone (its size learned now): its footer taken only at a version the store tells.
+            if (footer is null && cache is not null && file.Size is null && DatasetFiles.TellsVersion(source) is { } told
+                && cache.TryGet(store, FooterCache.Format.Ipc, file.Path, source.Length, told, out lease))
+            {
+                shared = true;
+                footer = lease.Memory;
+            }
+            // Kept from a store (not a local file or memory): a file's footer read apart, a stream's scan (IpcFile decides).
+            FooterRead? keep = footer is null && source is not ILocalSource
+                ? bytes =>
+                {
+                    kept.Keep(index, bytes, (source as IStoredSource)?.Stored);
+                    cache?.Put(store, FooterCache.Format.Ipc, DatasetFiles.VersionOf(source, file), bytes);
+                }
+                : null;
+            try
+            {
+                return await IpcFile.OpenOwnedAsync(source, footer, keep, map, useAsync, ct).ConfigureAwait(false);
+            }
+            catch (IpcFormatException e)
+            {
+                throw InFile(file.Path, e);
+            }
+            catch (IOException e) when (DatasetFiles.Unnamed(e, file.Path))
+            {
+                throw DatasetFiles.InFile(file.Path, e);
+            }
         }
-        catch (IOException e) when (DatasetFiles.Unnamed(e, file.Path))
+        finally
         {
-            throw DatasetFiles.InFile(file.Path, e);
-        }
-        // Kept from a store (not a local file or memory): a file's footer read apart, a stream's scan (IpcFile decides).
-        FooterRead? keep = footer is null && source is not ILocalSource ? bytes => kept.Keep(index, bytes, (source as IStoredSource)?.Stored) : null;
-        try
-        {
-            return await IpcFile.OpenOwnedAsync(source, footer, keep, map, useAsync, ct).ConfigureAwait(false);
-        }
-        catch (IpcFormatException e)
-        {
-            throw InFile(file.Path, e);
-        }
-        catch (IOException e) when (DatasetFiles.Unnamed(e, file.Path))
-        {
-            throw DatasetFiles.InFile(file.Path, e);
+            if (shared) lease.Dispose();
         }
     }
 

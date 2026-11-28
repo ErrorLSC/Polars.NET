@@ -182,7 +182,7 @@ public sealed class IpcDatasetReader : IDisposable, IAsyncDisposable
         for (int i = 0; i < _dataset.Files.Count && remaining != 0; i++)
         {
             if (!_read[i] && !_indexed) continue;
-            IpcFile file = await IpcDataset.OpenFileAsync(_dataset.Store, _dataset.Files[i], _dataset.Footers, i, Mapped, useAsync, ct).ConfigureAwait(false);
+            IpcFile file = await IpcDataset.OpenFileAsync(_dataset.Store, _dataset.Files[i], _dataset.Footers, i, Mapped, useAsync, ct, _dataset.Options.FooterCache).ConfigureAwait(false);
             try
             {
                 if (!_read[i])
@@ -490,7 +490,8 @@ public sealed class IpcDatasetReader : IDisposable, IAsyncDisposable
                 try
                 {
                     using (RequestGate.Lease lease = await entering.ConfigureAwait(false))
-                        file = await IpcDataset.OpenFileAsync(owner._dataset.Store, owner._dataset.Files[index], owner._dataset.Footers, index, owner.Mapped, useAsync: true, token)
+                        file = await IpcDataset.OpenFileAsync(owner._dataset.Store, owner._dataset.Files[index], owner._dataset.Footers, index, owner.Mapped, useAsync: true, token,
+                                owner._dataset.Options.FooterCache)
                             .ConfigureAwait(false);
                     if (!owner._read[index])
                     {

@@ -120,6 +120,13 @@ public abstract record DatasetOptions
     public bool UnifyDictionaries { get; init; }
 
     /// <summary>
+    /// The footers shared between scans (<see cref="Files.FooterCache"/>: Parquet and Arrow IPC files of a store that
+    /// another scan opened); null (the default): each scan reads its files' footers (a dataset keeps them between its
+    /// own reads).
+    /// </summary>
+    public FooterCache? FooterCache { get; init; }
+
+    /// <summary>
     /// How many files are open at once: read, planned (their footers read, their units started as threads allow) or
     /// opened ahead; null decides it: from local files and memory enough that small files keep every thread busy,
     /// from other stores 1024, so that the files after one whose request is slow keep being read meanwhile (their
@@ -189,7 +196,11 @@ public abstract record DatasetOptions
 /// (Iceberg's identity-partition values of a file written without the column, e.g.); see <see cref="ColumnDefault"/>.
 /// </param>
 public abstract record DatasetFile(string Path, long? Size = null, IReadOnlyDictionary<string, object?>? PartitionValues = null,
-    IReadOnlyList<ColumnDefault>? Defaults = null);
+    IReadOnlyList<ColumnDefault>? Defaults = null)
+{
+    /// <summary>The file as the store listed it (its version, when the listing tells one): what a footer cache checks.</summary>
+    internal StoredFile? Listed { get; init; }
+}
 
 /// <summary>Whether the <c>key=value</c> directories of a dataset's paths give partition columns.</summary>
 public enum HivePartitioning

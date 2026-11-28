@@ -83,7 +83,11 @@ rules the filter out is not read. JSON datasets take none (their files have no c
 (every format) matches files' columns and struct fields to the dataset's ignoring case, at any depth, as Spark and
 DuckDB do: an exact name first, else the one equal ignoring case; batches use the dataset's spelling (a given
 schema's, the first file's, the first seen when united); two names of a file matching one that way, and dataset
-columns differing in case alone, are refused. Polars Enums (at any depth) must have the same
+columns differing in case alone, are refused. A `FooterCache` (`DatasetOptions.FooterCache`, off by default) shares Parquet
+and Arrow IPC footers between scans: files of a store another scan opened (same size, and the same ETag or time
+written where the listing or the store tells them; files of a table's log by path and size) are opened at that
+version without their footer read; only footers that cost a request of their own are kept (remote files beyond the
+first read of a tail), as raw bytes in native memory, least recently used out first. Polars Enums (at any depth) must have the same
 categories in every file, and an Enum never meets a column that is none, unless the given `Schema` declares the column
 as plain values. `UnifyDictionaries` reads every dictionary column (at any depth) with one dictionary for the dataset:
 values numbered as first seen, indices of the type the given `Schema` declares (else Int32; more distinct values than

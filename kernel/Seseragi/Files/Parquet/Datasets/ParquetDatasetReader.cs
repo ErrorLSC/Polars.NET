@@ -348,7 +348,7 @@ public sealed class ParquetDatasetReader : IDisposable, IAsyncDisposable
             if (needed.Contains(true))
             {
                 ValueTask reading = ParquetDataset.ReadFootersAsync(_dataset.Store, all, footers, _dataset.Footers, _dataset.Interner, _dataset.Options.Decryption,
-                    cancellationToken, needed);
+                    cancellationToken, needed, _dataset.Options.FooterCache);
                 if (useAsync) await reading.ConfigureAwait(false);
                 else reading.AsTask().GetAwaiter().GetResult();
             }
@@ -582,7 +582,8 @@ public sealed class ParquetDatasetReader : IDisposable, IAsyncDisposable
     /// <summary>Opens a file (its footer from before when there is one, kept for the next reads when worth it).</summary>
     private async ValueTask<ParquetFile> OpenAsync(int index, bool useAsync, CancellationToken ct)
     {
-        ParquetFile file = await ParquetDataset.OpenFileAsync(_dataset.Store, _dataset.Files[index], _dataset.Footer(index), _dataset.Options.Decryption, useAsync, ct, _dataset.Footers, index, _dataset.Interner).ConfigureAwait(false);
+        ParquetFile file = await ParquetDataset.OpenFileAsync(_dataset.Store, _dataset.Files[index], _dataset.Footer(index), _dataset.Options.Decryption, useAsync, ct, _dataset.Footers, index, _dataset.Interner,
+            _dataset.Options.FooterCache).ConfigureAwait(false);
         if (_dataset.Projection is { } projection)
         {
             try

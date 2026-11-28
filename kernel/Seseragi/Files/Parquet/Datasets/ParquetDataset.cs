@@ -134,7 +134,7 @@ public sealed class ParquetDataset : IDisposable, IAsyncDisposable
                 return FileSchema;
             var footers = new ParquetMetadata?[Files.Count];
             for (int i = 0; i < footers.Length; i++) footers[i] = Footer(i);
-            ReadFootersAsync(Store, [.. Files], footers, Footers, Interner, Options.Decryption, default).AsTask().GetAwaiter().GetResult(); // those not kept
+            ReadFootersAsync(Store, [.. Files], footers, Footers, Interner, Options.Decryption, default, cache: Options.FooterCache).AsTask().GetAwaiter().GetResult(); // those not kept
             return Union(Files, footers!, options, Options);
         }
         return SchemaOf(Files[0].Path, Footer(0)!, options);
@@ -289,7 +289,7 @@ public sealed class ParquetDataset : IDisposable, IAsyncDisposable
         options ??= new ParquetDatasetOptions();
         options.Validate();
         var (store, files, hiveStart) = await DatasetFiles.ExpandAsync(inputs, options, ct).ConfigureAwait(false);
-        return await FromFilesAsync(store, options, [.. files.Select(f => new ParquetDatasetFile(f.Path, f.Size))], hiveStart, useAsync, ct).ConfigureAwait(false);
+        return await FromFilesAsync(store, options, [.. files.Select(f => new ParquetDatasetFile(f.Path, f.Size) { Listed = f.Listed })], hiveStart, useAsync, ct).ConfigureAwait(false);
     }
 
     private static async ValueTask<ParquetDataset> OpenCoreAsync(ParquetDatasetFile[] files, ParquetDatasetOptions? options, bool useAsync, CancellationToken ct)
@@ -315,13 +315,13 @@ public sealed class ParquetDataset : IDisposable, IAsyncDisposable
         else if (options.SchemaMode == DatasetSchemaMode.UnionByName)
         {
             var footers = new ParquetMetadata?[files.Length];
-            await ReadFootersAsync(store, files, footers, kept, interner, options.Decryption, ct).ConfigureAwait(false);
+            await ReadFootersAsync(store, files, footers, kept, interner, options.Decryption, ct, cache: options.FooterCache).ConfigureAwait(false);
             schema = Union(files, footers!, new ParquetReadOptions(), options);
         }
         else
         {
             // Kept as the other files' footers are (with its version, when worth it): reading it opens it without a request.
-            await using ParquetFile first = await OpenFileAsync(store, files[0], files[0].Metadata, options.Decryption, useAsync, ct, kept, 0, interner).ConfigureAwait(false);
+            await using ParquetFile first = await OpenFileAsync(store, files[0], files[0].Metadata, options.Decryption, useAsync, ct, kept, 0, interner, options.FooterCache).ConfigureAwait(false);
             firstFooter = first.Metadata;
             schema = SchemaOf(files[0].Path, first.Metadata, new ParquetReadOptions());
         }
@@ -335,7 +335,7 @@ public sealed class ParquetDataset : IDisposable, IAsyncDisposable
     /// given), <see cref="FootersAtOnce"/> at a time.
     /// </summary>
     internal static async ValueTask ReadFootersAsync(IFileStore store, ParquetDatasetFile[] files, ParquetMetadata?[] footers, KeptFooters kept, FooterInterner interner,
-        ParquetDecryptionOptions? decryption, CancellationToken ct, IReadOnlyList<bool>? needed = null)
+        ParquetDecryptionOptions? decryption, CancellationToken ct, IReadOnlyList<bool>? needed = null, FooterCache? cache = null)
     {
         await Parallel.ForEachAsync(Enumerable.Range(0, files.Length), new ParallelOptions { MaxDegreeOfParallelism = FootersAtOnce, CancellationToken = ct },
             async (i, token) =>
@@ -346,7 +346,7 @@ public sealed class ParquetDataset : IDisposable, IAsyncDisposable
                     footers[i] = known;
                     return;
                 }
-                await using ParquetFile file = await OpenFileAsync(store, files[i], null, decryption, useAsync: true, token, kept, i, interner).ConfigureAwait(false);
+                await using ParquetFile file = await OpenFileAsync(store, files[i], null, decryption, useAsync: true, token, kept, i, interner, cache).ConfigureAwait(false);
                 footers[i] = file.Metadata;
             }).ConfigureAwait(false);
     }
@@ -354,38 +354,84 @@ public sealed class ParquetDataset : IDisposable, IAsyncDisposable
     /// <summary>
     /// Opens a file of the store (owned by the <see cref="ParquetFile"/>); errors name the file. A footer read is kept
     /// in <paramref name="kept"/> as file <paramref name="index"/> when that is worth it (see <see cref="KeptFooters"/>),
-    /// and read sharing with <paramref name="interner"/>.
+    /// and in <paramref name="cache"/> (shared between scans; a footer kept there is taken instead of read), and read
+    /// sharing with <paramref name="interner"/>.
     /// </summary>
     internal static async ValueTask<ParquetFile> OpenFileAsync(IFileStore store, ParquetDatasetFile file, ParquetMetadata? footer, ParquetDecryptionOptions? decryption,
         bool useAsync, CancellationToken ct,
-        KeptFooters? kept = null, int index = 0, FooterInterner? interner = null)
+        KeptFooters? kept = null, int index = 0, FooterInterner? interner = null, FooterCache? cache = null)
     {
-        // A kept footer comes with the file's size and version: opened without a request, read at that version.
-        StoredFile? known = footer is not null && kept?.Version(index) is { } version ? version with { Path = file.Path }
-            : file.Size is long size ? new StoredFile(file.Path, size) : null;
-        IRandomAccess source;
+        FooterLease lease = default;
+        bool shared = false;
         try
         {
-            source = known is { } stored
-                ? await store.OpenAsync(stored, ct).ConfigureAwait(false)
-                : await store.OpenAsync(file.Path, ct).ConfigureAwait(false) ?? throw new FileNotFoundException($"'{file.Path}' does not exist.", file.Path);
+            try
+            {
+                // A footer another scan read, for a file of this size and version.
+                if (footer is null && cache is not null && file.Size is long listed && cache.TryGet(store, FooterCache.Format.Parquet, file.Path, listed, file.Listed, out lease))
+                {
+                    shared = true;
+                    footer = ParquetMetadata.ParseFooter(lease.Span, interner);
+                    kept?.Keep(index, lease.Span, lease.Version);
+                }
+            }
+            catch (ParquetFormatException e)
+            {
+                throw InFile(file.Path, e);
+            }
+            // A kept footer comes with the file's size and version: opened without a request, read at that version.
+            StoredFile? known = shared ? lease.Version with { Path = file.Path }
+                : footer is not null && kept?.Version(index) is { } version ? version with { Path = file.Path }
+                : file.Size is long size ? new StoredFile(file.Path, size) : null;
+            IRandomAccess source;
+            try
+            {
+                source = known is { } stored
+                    ? await store.OpenAsync(stored, ct).ConfigureAwait(false)
+                    : await store.OpenAsync(file.Path, ct).ConfigureAwait(false) ?? throw new FileNotFoundException($"'{file.Path}' does not exist.", file.Path);
+            }
+            catch (IOException e) when (Unnamed(e, file.Path))
+            {
+                throw InFile(file.Path, e);
+            }
+            // A file named alone (its size learned now): its footer taken only at a version the store tells.
+            if (footer is null && cache is not null && file.Size is null && DatasetFiles.TellsVersion(source) is { } told
+                && cache.TryGet(store, FooterCache.Format.Parquet, file.Path, source.Length, told, out lease))
+            {
+                shared = true;
+                try
+                {
+                    footer = ParquetMetadata.ParseFooter(lease.Span, interner);
+                }
+                catch (ParquetFormatException e)
+                {
+                    (source as IDisposable)?.Dispose();
+                    throw InFile(file.Path, e);
+                }
+            }
+            FooterRead? keep = footer is null && (kept is not null || cache is not null) && KeptFooters.Worth(source, ParquetMetadata.TailGuess)
+                ? bytes =>
+                {
+                    kept?.Keep(index, bytes, (source as IStoredSource)?.Stored);
+                    cache?.Put(store, FooterCache.Format.Parquet, DatasetFiles.VersionOf(source, file), bytes);
+                }
+                : null;
+            try
+            {
+                return await ParquetFile.OpenOwnedAsync(source, footer, decryption, useAsync, ct, keep, interner).ConfigureAwait(false);
+            }
+            catch (ParquetFormatException e)
+            {
+                throw InFile(file.Path, e);
+            }
+            catch (IOException e) when (Unnamed(e, file.Path))
+            {
+                throw InFile(file.Path, e);
+            }
         }
-        catch (IOException e) when (Unnamed(e, file.Path))
+        finally
         {
-            throw InFile(file.Path, e);
-        }
-        FooterRead? keep = footer is null && kept is not null && KeptFooters.Worth(source, ParquetMetadata.TailGuess) ? bytes => kept.Keep(index, bytes, (source as IStoredSource)?.Stored) : null;
-        try
-        {
-            return await ParquetFile.OpenOwnedAsync(source, footer, decryption, useAsync, ct, keep, interner).ConfigureAwait(false);
-        }
-        catch (ParquetFormatException e)
-        {
-            throw InFile(file.Path, e);
-        }
-        catch (IOException e) when (Unnamed(e, file.Path))
-        {
-            throw InFile(file.Path, e);
+            if (shared) lease.Dispose();
         }
     }
 

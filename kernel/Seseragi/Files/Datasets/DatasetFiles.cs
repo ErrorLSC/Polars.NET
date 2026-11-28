@@ -29,7 +29,7 @@ internal static class DatasetFiles
 
     /// <summary>The files the inputs name, in order; where Hive keys start in their paths (null: no partitions from paths).</summary>
     /// <exception cref="FileNotFoundException">No file is found.</exception>
-    public static async ValueTask<(IFileStore Store, List<(string Path, long? Size)> Files, int? HiveStart)> ExpandAsync(string[] inputs, DatasetOptions options,
+    public static async ValueTask<(IFileStore Store, List<(string Path, long? Size, StoredFile? Listed)> Files, int? HiveStart)> ExpandAsync(string[] inputs, DatasetOptions options,
         CancellationToken ct)
     {
         if (inputs.Length == 0) throw new ArgumentException("No path is given.", nameof(inputs));
@@ -38,7 +38,7 @@ internal static class DatasetFiles
             if (string.IsNullOrEmpty(input)) throw new ArgumentException("A path is empty.", nameof(inputs));
         }
         IFileStore store = options.Store ?? StoreOf(inputs, options);
-        List<(string Path, long? Size)> files = [];
+        List<(string Path, long? Size, StoredFile? Listed)> files = [];
         int hiveStart = int.MaxValue;
         bool directory = false;
         foreach (string input in inputs)
@@ -130,6 +130,25 @@ internal static class DatasetFiles
         return new Schema(fields, null);
     }
 
+    /// <summary>
+    /// A file's size and version as a footer cache keeps them: what the store learned reading it, else what its listing
+    /// told (its ETag, when it was written).
+    /// </summary>
+    internal static StoredFile VersionOf(IRandomAccess source, DatasetFile file)
+    {
+        StoredFile read = (source as IStoredSource)?.Stored ?? new StoredFile(file.Path, source.Length);
+        return read with
+        {
+            Path = file.Path,
+            ETag = read.ETag ?? file.Listed?.ETag,
+            LastModified = read.LastModified ?? file.Listed?.LastModified,
+        };
+    }
+
+    /// <summary>The version an opened source tells (its ETag, when it was written), or null when it tells none.</summary>
+    internal static StoredFile? TellsVersion(IRandomAccess source) =>
+        source is IStoredSource { Stored: var stored } && (stored.ETag is not null || stored.LastModified is not null) ? stored : null;
+
     /// <summary>The error of two fields of a file matching one of the dataset's ignoring case, neither exactly.</summary>
     internal static string TwiceMessage(string path, string level, string first, string second, string target) =>
         $"{path}: the file's {(level.Length == 0 ? "columns" : $"fields of '{level}'")} '{first}' and '{second}' both match the dataset's '{target}' ignoring case "
@@ -183,7 +202,7 @@ internal static class DatasetFiles
     /// whether it was a directory, and where Hive keys start in the paths (after a directory; everywhere for others).
     /// </summary>
     private static async ValueTask<(bool Directory, int HiveStart)> ExpandAsync(IFileStore store, string input, DatasetOptions options,
-        List<(string Path, long? Size)> files, bool alone, CancellationToken ct)
+        List<(string Path, long? Size, StoredFile? Listed)> files, bool alone, CancellationToken ct)
     {
         bool local = store is LocalFileStore;
         // Local paths may use the platform's separator; patterns and listings are matched with '/'.
@@ -197,7 +216,7 @@ internal static class DatasetFiles
             {
                 string listed = local && Path.DirectorySeparatorChar != '/' ? file.Path.Replace(Path.DirectorySeparatorChar, '/') : file.Path;
                 if (file.Size > 0 && listed.StartsWith(glob.Prefix, StringComparison.Ordinal) && glob.IsMatch(listed.AsSpan(glob.Prefix.Length)) && Kept(file.Path, options))
-                    files.Add((file.Path, file.Size));
+                    files.Add((file.Path, file.Size, file));
             }
         }
         else if (path.EndsWith('/') || store is IDirectoryAware directories && directories.IsDirectory(input))
@@ -205,7 +224,7 @@ internal static class DatasetFiles
             if (!store.CanList) throw new NotSupportedException($"'{input}' is a directory, but the store cannot list its files.");
             await foreach (StoredFile file in store.ListAsync(input, recursive: true, ct).ConfigureAwait(false))
             {
-                if (file.Size > 0 && Kept(file.Path, options)) files.Add((file.Path, file.Size));
+                if (file.Size > 0 && Kept(file.Path, options)) files.Add((file.Path, file.Size, file));
             }
             if (alone) SameExtension(input, files);
             files.Sort(start, files.Count - start, ByPath.Instance);
@@ -213,7 +232,7 @@ internal static class DatasetFiles
         }
         else
         {
-            if (Kept(input, options)) files.Add((input, null));
+            if (Kept(input, options)) files.Add((input, null, null));
             return (false, 0);
         }
         files.Sort(start, files.Count - start, ByPath.Instance);
@@ -236,10 +255,10 @@ internal static class DatasetFiles
     /// The files of a directory given alone must share an extension (a compressed file's being the one before its
     /// compression's: <c>a.jsonl.gz</c> is a <c>.jsonl</c>): a glob says which to read otherwise.
     /// </summary>
-    private static void SameExtension(string directory, List<(string Path, long? Size)> files)
+    private static void SameExtension(string directory, List<(string Path, long? Size, StoredFile? Listed)> files)
     {
         string? first = null;
-        foreach (var (path, _) in files)
+        foreach (var (path, _, _) in files)
         {
             string extension = Extension(path);
             if (first is null) first = extension;
@@ -256,11 +275,11 @@ internal static class DatasetFiles
         return extension is ".gz" or ".zst" ? Path.GetExtension(path[..^extension.Length]) : extension;
     }
 
-    private sealed class ByPath : IComparer<(string Path, long? Size)>
+    private sealed class ByPath : IComparer<(string Path, long? Size, StoredFile? Listed)>
     {
         public static readonly ByPath Instance = new();
 
-        public int Compare((string Path, long? Size) x, (string Path, long? Size) y) => string.CompareOrdinal(x.Path, y.Path);
+        public int Compare((string Path, long? Size, StoredFile? Listed) x, (string Path, long? Size, StoredFile? Listed) y) => string.CompareOrdinal(x.Path, y.Path);
     }
 
     /// <summary>A store's failure (a network's, a disk's) with the file it is about.</summary>
