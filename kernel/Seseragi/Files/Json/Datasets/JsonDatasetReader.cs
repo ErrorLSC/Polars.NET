@@ -284,7 +284,7 @@ public sealed class JsonDatasetReader : IDisposable, IAsyncDisposable
         try
         {
             return JsonReader.Prepare(_dataset.FileSchema, columns.Lists[after ? 1 : 0].Columns, _options.FilterRows ? filter : null,
-                _options with { RowIndexColumn = rowIndex ? _shape.NumbersColumn : null }, strict);
+                _options with { RowIndexColumn = rowIndex ? _shape.NumbersColumn : null, KeysIgnoreCase = _options.KeysIgnoreCase || _dataset.Options.CaseInsensitiveNames }, strict);
         }
         catch (Exception e) when (JsonDataset.Named(path, e) is { } named)
         {

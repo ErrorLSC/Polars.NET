@@ -1,3 +1,4 @@
+using Kaminari.Sazanami.Arrow.TypeSystem;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq.Expressions;
 using Apache.Arrow;
@@ -53,6 +54,7 @@ public sealed class CsvDataset : IDisposable, IAsyncDisposable
             fields.Add(new Field(position, Int64Type.Default, nullable: false));
         }
         Schema = new Schema(fields, fileSchema.Metadata);
+        DatasetFiles.CheckNames(options, Schema, message => new ArgumentException(message, nameof(options)));
         PartitionSchema = partitions is null ? null : new Schema([.. Enumerable.Range(0, partitions.Fields.Length).Select(p => PartitionField(p, views: true))], null);
     }
 
@@ -314,18 +316,20 @@ public sealed class CsvDataset : IDisposable, IAsyncDisposable
         for (int i = 0; i < heads.Length; i++)
         {
             CsvHead head = heads[i];
-            if (i == 0) foreach (string name in head.Names) Add(name);
+            // Ignoring case, the file's names spelled as the columns so far (its own spelling for new ones).
+            string[] headNames = options.CaseInsensitiveNames ? Respelled(head.Names, names, files[i].Path, twins: i == 0 || byName) : head.Names;
+            if (i == 0) foreach (string name in headNames) Add(name);
             else if (byName)
             {
-                foreach (string name in head.Names) Add(name);
+                foreach (string name in headNames) Add(name);
             }
             else
             {
                 // A column with a default (the dataset's or the file's) may be missing.
-                if (names.FirstOrDefault(n => !head.Names.Contains(n) && !Defaulted(n, files[i])) is { } lacking)
+                if (names.FirstOrDefault(n => !headNames.Contains(n) && !Defaulted(n, files[i])) is { } lacking)
                     throw new CsvFormatException($"{files[i].Path}: the file lacks the column '{lacking}' of the dataset's first file " +
                         $"({string.Join(", ", names)}): give AllowMissingColumns = true to read it as nulls.");
-                if (!options.IgnoreExtraColumns && head.Names.FirstOrDefault(n => !known.Contains(n)) is { } extra)
+                if (!options.IgnoreExtraColumns && headNames.FirstOrDefault(n => !known.Contains(n)) is { } extra)
                     throw new CsvFormatException($"{files[i].Path}: the file's column '{extra}' is not one of the dataset's first file " +
                         $"({string.Join(", ", names)}): give IgnoreExtraColumns = true to leave it out, or AllowMissingColumns = true to unite the files' columns.");
             }
@@ -333,17 +337,17 @@ public sealed class CsvDataset : IDisposable, IAsyncDisposable
             if (root is null)
             {
                 root = inference;
-                for (int c = 0; c < head.Names.Length; c++) rootColumn[head.Names[c]] = c;
+                for (int c = 0; c < headNames.Length; c++) rootColumn[headNames[c]] = c;
                 continue;
             }
-            for (int c = 0; c < head.Names.Length; c++)
+            for (int c = 0; c < headNames.Length; c++)
             {
-                if (!known.Contains(head.Names[c])) continue;
-                if (!rootColumn.TryGetValue(head.Names[c], out int r))
+                if (!known.Contains(headNames[c])) continue;
+                if (!rootColumn.TryGetValue(headNames[c], out int r))
                 {
                     r = root.Columns;
                     root.Widen(r + 1);
-                    rootColumn[head.Names[c]] = r;
+                    rootColumn[headNames[c]] = r;
                 }
                 root.Absorb(r, inference, c);
             }
@@ -377,6 +381,20 @@ public sealed class CsvDataset : IDisposable, IAsyncDisposable
 
         bool Defaulted(string name, CsvDatasetFile file) =>
             (options.Defaults ?? []).Concat(file.Defaults ?? []).Any(d => d?.Path is [var column] && column == name);
+    }
+
+    /// <summary>
+    /// A file's column names spelled as the dataset's columns so far they match ignoring case (CaseInsensitiveNames):
+    /// the same name, else the one equal ignoring case; two of the file's matching one that way are an error naming the
+    /// file, and with <paramref name="twins"/> (the file's columns become the dataset's) two differing in case alone.
+    /// </summary>
+    internal static string[] Respelled(string[] names, IReadOnlyList<string> columns, string path, bool twins)
+    {
+        if (twins && ArrowNames.CaseTwins([.. names.Select(n => new Field(n, NullType.Default, true))]) is var (_, first, second))
+            throw new CsvFormatException($"{path}: the file's columns '{first}' and '{second}' differ in case alone: with CaseInsensitiveNames they cannot be told apart.");
+        int[] matched = ArrowNames.Match(names, columns,
+            (first, second, target) => new CsvFormatException(DatasetFiles.TwiceMessage(path, "", first, second, target)));
+        return [.. names.Select((n, c) => matched[c] >= 0 ? columns[matched[c]] : n)];
     }
 
     /// <summary>

@@ -85,6 +85,20 @@ public abstract record DatasetOptions
     public IReadOnlyList<ColumnDefault>? Defaults { get; init; }
 
     /// <summary>
+    /// Whether the files' columns and struct fields (at any depth: lists' elements and maps' keys and values gone
+    /// through) match the dataset's ignoring case, as Spark (by default) and DuckDB match them; off by default. A field
+    /// takes the dataset's field of its own name, else the one equal to it ignoring case that no field of the file
+    /// names exactly; two fields of a file matching one that way are an error naming them (in JSON, where every record
+    /// names its fields, a record's later field matching one it gave already is passed over, as a repeated key is). Batches use the dataset's
+    /// names: a given <see cref="Schema"/>'s, else those the first file (or with <see cref="DatasetSchemaMode.UnionByName"/>
+    /// the first file holding the column) spells. A Hive partition key equal to a column ignoring case is that column
+    /// (the path's value wins, as for an equal one). The dataset's columns at one level (the columns added included)
+    /// may not differ in case alone. The names given to readers (columns, paths, filters, defaults) are the dataset's,
+    /// as they are spelled.
+    /// </summary>
+    public bool CaseInsensitiveNames { get; init; }
+
+    /// <summary>
     /// Whether files' columns may convert to the dataset's types by conversions that approximate values (off by
     /// default: only lossless widenings): integers and decimals into floats that cannot hold them exactly (the
     /// nearest float), floats into narrower floats, times, timestamps and durations into a coarser unit (rounded

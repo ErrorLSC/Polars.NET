@@ -79,7 +79,7 @@ internal static class DatasetFiles
             return Partitions.FromValues(files, given);
         }
         return hiveStart is int start && options.Partitioning != HivePartitioning.Off
-            ? Partitions.FromHive([.. files.Select(f => f.Path)], start, options.PartitionSchema, fileSchema, options.ParseHiveDates)
+            ? Partitions.FromHive([.. files.Select(f => f.Path)], start, options.PartitionSchema, fileSchema, options.ParseHiveDates, options.CaseInsensitiveNames)
             : null;
     }
 
@@ -97,8 +97,16 @@ internal static class DatasetFiles
         List<Field> fields = [];
         List<string> origins = [];
         Dictionary<string, int> index = new(StringComparer.Ordinal);
-        foreach (var (path, schema) in files)
+        foreach (var (path, given) in files)
         {
+            // Ignoring case, each file's fields spelled as the columns so far (its own spelling for new ones).
+            Schema schema = given;
+            if (options.CaseInsensitiveNames)
+            {
+                if (ArrowNames.CaseTwins(given.FieldsList) is var (level, first, second))
+                    throw error($"{path}: the file's {(level.Length == 0 ? "columns" : $"fields of '{level}'")} '{first}' and '{second}' differ in case alone: with CaseInsensitiveNames they cannot be told apart.");
+                schema = ArrowNames.Respell(given, fields, (at, a, b, t) => error(TwiceMessage(path, at, a, b, t)));
+            }
             foreach (Field field in schema.FieldsList)
             {
                 if (!index.TryGetValue(field.Name, out int at))
@@ -120,6 +128,22 @@ internal static class DatasetFiles
             }
         }
         return new Schema(fields, null);
+    }
+
+    /// <summary>The error of two fields of a file matching one of the dataset's ignoring case, neither exactly.</summary>
+    internal static string TwiceMessage(string path, string level, string first, string second, string target) =>
+        $"{path}: the file's {(level.Length == 0 ? "columns" : $"fields of '{level}'")} '{first}' and '{second}' both match the dataset's '{target}' ignoring case "
+        + "(CaseInsensitiveNames): rename one of them, or read the files with exact names.";
+
+    /// <summary>
+    /// Checks, ignoring case, the columns of a dataset that opens (<see cref="DatasetOptions.CaseInsensitiveNames"/>):
+    /// none at one level may differ from another in case alone (the files could not be matched to them).
+    /// </summary>
+    internal static void CheckNames(DatasetOptions options, Schema columns, Func<string, Exception> error)
+    {
+        if (options.CaseInsensitiveNames && ArrowNames.CaseTwins(columns.FieldsList) is var (level, first, second))
+            throw error($"The dataset's {(level.Length == 0 ? "columns" : $"fields of '{level}'")} '{first}' and '{second}' differ in case alone: "
+                + "with CaseInsensitiveNames they cannot be told apart (rename one, or match exact names).");
     }
 
     /// <summary>

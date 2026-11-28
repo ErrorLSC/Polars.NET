@@ -216,6 +216,8 @@ public sealed class CsvDatasetReader : IDisposable, IAsyncDisposable
     /// </summary>
     private CsvReadOptions FileOptions(int index, FileState state, bool forceAfter) => _dataset.Options.Format with
     {
+        // Ignoring case, a header name takes the dataset's column it matches (exactly first).
+        MembersByName = _dataset.Options.Format.MembersByName || _dataset.Options.CaseInsensitiveNames,
         Schema = null,
         SchemaOverrides = null,
         Columns = null,

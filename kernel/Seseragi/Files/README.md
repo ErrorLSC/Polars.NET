@@ -79,7 +79,11 @@ as Iceberg's `initial-default` does: at any depth (fields of list elements and m
 `ColumnDefault.Struct` making a struct of its fields' own defaults; a field with a default may be missing without
 `AllowMissingColumns`; a file's own nulls stay null. A file's own `Defaults` (`ParquetDatasetFile`, `IpcDatasetFile`,
 `CsvDatasetFile`) come before the dataset's. Filters read a missing column as its default, so a file whose default
-rules the filter out is not read. JSON datasets take none (their files have no columns of their own). Polars Enums (at any depth) must have the same
+rules the filter out is not read. JSON datasets take none (their files have no columns of their own). `CaseInsensitiveNames`
+(every format) matches files' columns and struct fields to the dataset's ignoring case, at any depth, as Spark and
+DuckDB do: an exact name first, else the one equal ignoring case; batches use the dataset's spelling (a given
+schema's, the first file's, the first seen when united); two names of a file matching one that way, and dataset
+columns differing in case alone, are refused. Polars Enums (at any depth) must have the same
 categories in every file, and an Enum never meets a column that is none, unless the given `Schema` declares the column
 as plain values. `UnifyDictionaries` reads every dictionary column (at any depth) with one dictionary for the dataset:
 values numbered as first seen, indices of the type the given `Schema` declares (else Int32; more distinct values than

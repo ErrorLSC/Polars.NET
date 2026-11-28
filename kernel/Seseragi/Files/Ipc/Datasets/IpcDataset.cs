@@ -1,3 +1,5 @@
+using Kaminari.Sazanami.Arrow.Ipc;
+using Kaminari.Sazanami.Arrow.TypeSystem;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq.Expressions;
 using Apache.Arrow;
@@ -53,6 +55,7 @@ public sealed class IpcDataset : IDisposable, IAsyncDisposable
             fields.Add(new Field(position, Int64Type.Default, nullable: false));
         }
         Schema = new Schema(fields, fileSchema.Metadata);
+        DatasetFiles.CheckNames(options, Schema, message => new ArgumentException(message, nameof(options)));
         PartitionSchema = partitions is null ? null : new Schema([.. Enumerable.Range(0, partitions.Fields.Length).Select(p => PartitionField(p, views: true))], null);
     }
 
@@ -232,6 +235,18 @@ public sealed class IpcDataset : IDisposable, IAsyncDisposable
 
         static Schema Nullable(Schema schema) =>
             new([.. schema.FieldsList.Select(f => f.IsNullable ? f : new Field(f.Name, f.DataType, nullable: true, f.Metadata))], schema.Metadata);
+    }
+
+    /// <summary>
+    /// A file's schema with its fields (at any depth) named as the dataset's they match ignoring case
+    /// (<see cref="ArrowNames.Respell"/>): the Arrow schema and the top-level fields the batches are decoded by (their
+    /// types give the nested arrays theirs, names included).
+    /// </summary>
+    internal static IpcSchema Respelled(IpcSchema schema, IReadOnlyList<Field> columns, Func<string, string, string, string, Exception> twice)
+    {
+        Schema renamed = ArrowNames.Respell(schema.Schema, columns, twice);
+        IpcField[] fields = [.. schema.Fields.Select((f, i) => new IpcField(renamed.FieldsList[i], f.DictionaryId, f.Children, f.Conversion))];
+        return new IpcSchema(renamed, fields, schema.Dictionaries, schema.Features);
     }
 
     /// <summary>

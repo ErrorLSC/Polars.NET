@@ -62,6 +62,14 @@ public sealed class IpcFile : IDisposable, IAsyncDisposable
     /// <summary>The schema (with the schema's custom metadata in <see cref="Schema.Metadata"/>).</summary>
     public Schema Schema => Footer.Schema.Schema;
 
+    private IpcSchema? _projected;
+
+    /// <summary>The schema batches are read with: the footer's, or the one a dataset named its fields in (<see cref="Project"/>).</summary>
+    internal IpcSchema ReadSchema => _projected ?? Footer.Schema;
+
+    /// <summary>Reads the batches with <paramref name="schema"/>: the footer's, its fields renamed (a dataset's names).</summary>
+    internal void Project(IpcSchema schema) => _projected = schema;
+
     /// <summary>The custom metadata of the footer (the writer's file-level metadata); empty when it has none.</summary>
     public IReadOnlyDictionary<string, string> FileMetadata => ToDictionary(Footer.Metadata);
 

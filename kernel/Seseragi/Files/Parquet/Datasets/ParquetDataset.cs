@@ -34,7 +34,7 @@ public sealed class ParquetDataset : IDisposable, IAsyncDisposable
     private readonly ParquetMetadata? _first;
 
     /// <summary>How the files are read by field id (<see cref="ParquetFieldMatching.ByFieldId"/>); null by name.</summary>
-    internal FieldIdProjection? Projection { get; }
+    internal FileProjection? Projection { get; }
 
     private ParquetDataset(IFileStore store, ParquetDatasetOptions options, ParquetDatasetFile[] files, KeptFooters kept, FooterInterner interner,
         ParquetMetadata? first, Apache.Arrow.Schema fileSchema, Partitions? partitions)
@@ -52,6 +52,8 @@ public sealed class ParquetDataset : IDisposable, IAsyncDisposable
         Partitions = partitions;
         if (options.FieldMatching == ParquetFieldMatching.ByFieldId)
             Projection = new FieldIdProjection(options.Schema!, options.NameMapping, name => partitions?.IndexOf(name) >= 0 || name == options.FilePathColumn);
+        else if (options.CaseInsensitiveNames)
+            Projection = new NameProjection(FileSchema, name => partitions?.IndexOf(name) >= 0 || name == options.FilePathColumn);
         // The files' columns (a partition column of the same name in its place: the path's value wins), then the
         // other partition columns, then the file path.
         List<Field> fields = [.. fileSchema.FieldsList.Select(f => partitions?.IndexOf(f.Name) is int p and >= 0
@@ -72,6 +74,7 @@ public sealed class ParquetDataset : IDisposable, IAsyncDisposable
             fields.Add(new Field(position, Int64Type.Default, nullable: false));
         }
         Schema = new Apache.Arrow.Schema(fields, fileSchema.Metadata);
+        DatasetFiles.CheckNames(options, Schema, message => new ArgumentException(message, nameof(options)));
         PartitionSchema = partitions is null ? null : new Apache.Arrow.Schema([.. Enumerable.Range(0, partitions.Fields.Length).Select(p => PartitionField(p, views: true))], null);
     }
 

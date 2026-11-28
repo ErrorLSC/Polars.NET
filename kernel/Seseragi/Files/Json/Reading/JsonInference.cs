@@ -18,7 +18,9 @@ namespace Kaminari.Seseragi.Files.Json.Reading;
 /// that engine merges struct types: an object with more fields than seen so far gives its order, the fields it lacks after
 /// them; otherwise new fields come last.
 /// </summary>
-internal sealed class JsonShape(string path) : IDisposable
+/// <param name="path">The place's dotted path ("" for the records).</param>
+/// <param name="ignoreCase">Fields equal ignoring case are one field (here and below), spelled as first seen.</param>
+internal sealed class JsonShape(string path, bool ignoreCase = false) : IDisposable
 {
     [Flags]
     private enum Kinds
@@ -53,7 +55,7 @@ internal sealed class JsonShape(string path) : IDisposable
             case JsonTokenType.Number: _kinds |= Number(ref reader, path); break;
             case JsonTokenType.StartArray:
                 _kinds |= Kinds.Array;
-                while (reader.Read() && reader.TokenType != JsonTokenType.EndArray) (_items ??= new JsonShape(path + "[]")).Observe(ref reader);
+                while (reader.Read() && reader.TokenType != JsonTokenType.EndArray) (_items ??= new JsonShape(path + "[]", ignoreCase)).Observe(ref reader);
                 break;
             case JsonTokenType.StartObject:
                 ObserveObject(ref reader);
@@ -114,7 +116,7 @@ internal sealed class JsonShape(string path) : IDisposable
     {
         _kinds |= other._kinds;
         Records += other.Records;
-        if (other._items is { } items) (_items ??= new JsonShape(path + "[]")).Merge(items);
+        if (other._items is { } items) (_items ??= new JsonShape(path + "[]", ignoreCase)).Merge(items);
         if (other._fields.Count == 0) return;
         int known = _fields.Count;
         int stamp = ++_objects;
@@ -156,7 +158,7 @@ internal sealed class JsonShape(string path) : IDisposable
     private int Add(byte[] name)
     {
         string text = Encoding.UTF8.GetString(name);
-        _fields.Add((name, new JsonShape(path.Length == 0 ? text : path + "." + text)));
+        _fields.Add((name, new JsonShape(path.Length == 0 ? text : path + "." + text, ignoreCase)));
         _index?.GetOrAdd(name);
         if (_index is null && _fields.Count > LinearFields)
         {
@@ -168,9 +170,25 @@ internal sealed class JsonShape(string path) : IDisposable
 
     private int Find(ReadOnlySpan<byte> name)
     {
-        if (_index is not null) return _index.IndexOf(name);
+        int found = -1;
+        if (_index is not null) found = _index.IndexOf(name);
+        else
+        {
+            for (int i = 0; i < _fields.Count && found < 0; i++)
+                if (name.SequenceEqual(_fields[i].Name)) found = i;
+        }
+        if (found >= 0 || !ignoreCase) return found;
+        // Ignoring case: the field first seen spelled otherwise (a miss of an exact name only: records repeat theirs);
+        // ASCII names compared as bytes, others as text.
+        bool ascii = Ascii.IsValid(name);
+        string? text = null;
         for (int i = 0; i < _fields.Count; i++)
-            if (name.SequenceEqual(_fields[i].Name)) return i;
+        {
+            byte[] other = _fields[i].Name;
+            if (ascii && Ascii.IsValid(other) ? Ascii.EqualsIgnoreCase(name, other)
+                : string.Equals(text ??= Encoding.UTF8.GetString(name), Encoding.UTF8.GetString(other), StringComparison.OrdinalIgnoreCase))
+                return i;
+        }
         return -1;
     }
 

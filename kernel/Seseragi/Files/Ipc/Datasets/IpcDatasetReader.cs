@@ -231,8 +231,12 @@ public sealed class IpcDatasetReader : IDisposable, IAsyncDisposable
     private FilePlan Plan(IpcFile file, int index)
     {
         string path = PathOf(index);
+        // Ignoring case, the file's fields read under the dataset's names.
+        if (_dataset.Options.CaseInsensitiveNames)
+            file.Project(IpcDataset.Respelled(file.Footer.Schema, _dataset.FileSchema.FieldsList,
+                (level, first, second, target) => new IpcFormatException(DatasetFiles.TwiceMessage(path, level, first, second, target))));
         Dictionary<string, Field> has = new(StringComparer.Ordinal);
-        foreach (Field field in file.Schema.FieldsList) has.TryAdd(field.Name, field);
+        foreach (Field field in file.ReadSchema.Schema.FieldsList) has.TryAdd(field.Name, field);
         DatasetShape.FileColumns columns = _shape.ColumnsOf(has, path, index);
         var (fileFilter, complete) = _shape.FileFilter(index, columns.Missing, columns.Dropped, has);
 

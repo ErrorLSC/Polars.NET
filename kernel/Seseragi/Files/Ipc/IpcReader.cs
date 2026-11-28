@@ -41,7 +41,7 @@ public sealed class IpcReader : IDisposable
         options.Validate();
         _file = file;
         _options = options;
-        _decoding = new IpcDecoding(file.Footer.Schema, options);
+        _decoding = new IpcDecoding(file.ReadSchema, options);
         if (file.Stream is not null) _applying = new SemaphoreSlim(1, 1);
         // Every body is read from the mapping (On and Auto alike today): compressed ones are decompressed out of it.
         if (options.MemoryMap != IpcMemoryMap.Off && file.Source is ILocalSource local) _map = local.Map(out _mapStart);

@@ -39,11 +39,14 @@ internal sealed class Partitions
     /// string column). The keys are the first path's: every path must have them all, and no other. A key's type is
     /// <paramref name="given"/>'s, else the files' column of that name (unless of nulls only), else inferred over every
     /// value (CSV rules);
-    /// temporal types are strings unless <paramref name="parseDates"/>. Null when the first path has no key.
+    /// temporal types are strings unless <paramref name="parseDates"/>. Null when the first path has no key. With
+    /// <paramref name="ignoreCase"/>, a key equal to a column of the files ignoring case is that column (its spelling
+    /// and type), as an equal one is.
     /// </summary>
     /// <exception cref="InvalidOperationException">The paths disagree on their keys, or a key is missing from <paramref name="given"/>.</exception>
     /// <exception cref="InvalidDataException">A value is not of its key's type.</exception>
-    public static Partitions? FromHive(IReadOnlyList<string> paths, int start, Apache.Arrow.Schema? given, Apache.Arrow.Schema files, bool parseDates)
+    public static Partitions? FromHive(IReadOnlyList<string> paths, int start, Apache.Arrow.Schema? given, Apache.Arrow.Schema files, bool parseDates,
+        bool ignoreCase = false)
     {
         var parts = new List<(string Key, string Value)>[paths.Count];
         for (int i = 0; i < paths.Count; i++) parts[i] = Keys(paths[i], start);
@@ -69,20 +72,22 @@ internal sealed class Partitions
         {
             string key = keys[k];
             string?[] values = [.. parts.Select(p => p.Last(x => x.Key == key).Value)];
+            string name = ignoreCase && files.GetFieldIndex(key) < 0
+                && files.FieldsList.Where(f => string.Equals(f.Name, key, StringComparison.OrdinalIgnoreCase)).ToArray() is [var only] ? only.Name : key;
             IArrowType type;
             if (given is not null)
             {
-                Field field = given.GetFieldByName(key)
+                Field field = given.GetFieldByName(key) ?? given.GetFieldByName(name)
                     ?? throw new InvalidOperationException($"The partition key '{key}' (in '{paths[0]}') is not in the partition schema given.");
                 type = Temporal(field.DataType) && !parseDates ? StringType.Default : field.DataType;
             }
             // A column of nulls in the files (a JSON file of the null partition's rows) says nothing of the type.
-            else if (files.GetFieldByName(key) is { DataType: not NullType } column)
+            else if (files.GetFieldByName(name) is { DataType: not NullType } column)
                 // Strings as plain strings: the batches give them in the reader's layout.
                 type = Temporal(column.DataType) && !parseDates || column.DataType is StringViewType ? StringType.Default : column.DataType;
             else
                 type = Inferred(values, parseDates);
-            fields[k] = new Field(key, type, nullable: true);
+            fields[k] = new Field(name, type, nullable: true);
             columns[k] = Build(type, values, (i, value) => $"The partition value '{value}' of '{key}' in '{paths[i]}' is not {Describe(type)}.");
         }
         return new Partitions(fields, columns);

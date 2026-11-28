@@ -52,6 +52,7 @@ public sealed class JsonDataset : IDisposable, IAsyncDisposable
             fields.Add(new Field(position, Int64Type.Default, nullable: false));
         }
         Schema = new Schema(fields, fileSchema.Metadata);
+        DatasetFiles.CheckNames(options, Schema, message => new ArgumentException(message, nameof(options)));
         PartitionSchema = partitions is null ? null : new Schema([.. Enumerable.Range(0, partitions.Fields.Length).Select(p => PartitionField(p, views: true))], null);
     }
 
@@ -250,7 +251,7 @@ public sealed class JsonDataset : IDisposable, IAsyncDisposable
     private static async ValueTask<JsonShape> FirstAsync(IFileStore store, JsonDatasetOptions options, JsonDatasetFile[] files, FileVersions versions, bool useAsync,
         CancellationToken ct)
     {
-        var root = new JsonShape("");
+        var root = new JsonShape("", options.CaseInsensitiveNames);
         try
         {
             for (int i = 0; i < files.Length && root.Records == 0; i++)
@@ -275,7 +276,7 @@ public sealed class JsonDataset : IDisposable, IAsyncDisposable
             await Parallel.ForEachAsync(Enumerable.Range(0, files.Length), new ParallelOptions { MaxDegreeOfParallelism = HeadsAtOnce, CancellationToken = ct },
                 async (i, token) =>
                 {
-                    var head = new JsonShape("");
+                    var head = new JsonShape("", options.CaseInsensitiveNames);
                     heads[i] = head;
                     try
                     {
@@ -287,7 +288,7 @@ public sealed class JsonDataset : IDisposable, IAsyncDisposable
                     }
                 }).ConfigureAwait(false);
             if (failures.FirstOrDefault(f => f is not null) is { } first) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Throw(first);
-            var root = new JsonShape("");
+            var root = new JsonShape("", options.CaseInsensitiveNames);
             foreach (JsonShape? head in heads) root.Merge(head!);
             return root;
         }

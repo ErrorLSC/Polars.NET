@@ -14,7 +14,7 @@ namespace Kaminari.Seseragi.Files.Parquet;
 /// filters) then works by the schema's names. Files without any field id take their ids from the name mapping. One
 /// projection per file shape, kept; safe on any thread.
 /// </summary>
-internal sealed class FieldIdProjection
+internal sealed class FieldIdProjection : FileProjection
 {
     /// <summary>A field of the schema at some level: its name there and its type (whose struct fields are matched below it).</summary>
     private sealed record Target(string Name, IArrowType Type);
@@ -22,9 +22,6 @@ internal sealed class FieldIdProjection
     private readonly Dictionary<int, Target> _top;
     private readonly Dictionary<StructType, Dictionary<int, Target>> _structs = new(ReferenceEqualityComparer.Instance);
     private readonly NameMapping? _mapping;
-    private readonly object _lock = new();
-    private readonly Dictionary<SchemaShape, SchemaShape> _projected = new(ReferenceEqualityComparer.Instance);
-    private const int MaxShapes = 256;
 
     /// <summary>The prefix of the names of file fields no schema field matches (no query names them).</summary>
     internal const string Unmatched = "\u001funmatched ";
@@ -78,40 +75,16 @@ internal sealed class FieldIdProjection
         }
     }
 
-    /// <summary>The shape <paramref name="file"/> is read through (made once per shape of the file's own).</summary>
     /// <exception cref="ParquetFormatException">The file has no field ids and there is no name mapping.</exception>
-    public SchemaShape Of(ParquetFile file)
-    {
-        SchemaShape own = file.OwnShape;
-        lock (_lock)
-        {
-            if (_projected.TryGetValue(own, out SchemaShape? known)) return known;
-        }
-        SchemaShape made = Project(own);
-        lock (_lock)
-        {
-            if (_projected.TryGetValue(own, out SchemaShape? known)) return known;
-            if (_projected.Count < MaxShapes) _projected.Add(own, made);
-        }
-        return made;
-    }
-
-    private SchemaShape Project(SchemaShape own)
+    protected override void Name(SchemaShape own, ColumnMapping[] columns, Dictionary<SchemaElement, string> names)
     {
         SchemaElement[] elements = own.Elements;
         bool ids = false;
         for (int e = 1; e < elements.Length && !ids; e++) ids = elements[e].FieldId is not null;
         if (!ids && _mapping is null)
             throw new ParquetFormatException("The file has no field ids to match the schema's by: give the table's name mapping (ParquetDatasetOptions.NameMapping).");
-        // The structure as the reader sees it (lists and maps by the backward-compatibility rules); types do not matter.
-        var (_, columns) = own.Mapping(new ParquetReadOptions());
-        var names = new Dictionary<SchemaElement, string>(ReferenceEqualityComparer.Instance);
         int unmatched = 0;
         foreach (ColumnMapping column in columns) Match(column.Node, column.Read, _top, ids ? null : _mapping!.Fields);
-
-        SchemaElement[] renamed = [.. elements.Select(e => names.TryGetValue(e, out string? name) ? Renamed(e, name) : e)];
-        Apache.Arrow.Schema? stored = own.StoredSchema is { } s ? new Apache.Arrow.Schema([.. s.FieldsList.Select(Stored)], s.Metadata) : null;
-        return SchemaShape.WithStored(renamed, stored);
 
         // A file field at a level: renamed to the schema field of its id (from the file, or the mapping), its nested
         // fields matched below; out of reach when no schema field has its id.
@@ -151,34 +124,6 @@ internal sealed class FieldIdProjection
                 }
             }
         }
-
-        // The stored Arrow schema renamed as the elements are: its top-level fields and struct fields by their names
-        // in the file (they refine the elements of those names).
-        Field Stored(Field field)
-        {
-            ColumnMapping? column = System.Array.Find(columns, c => c.Node.Name == field.Name);
-            return column is null ? field : Rename(field, column.Node, column.Read);
-        }
-
-        Field Rename(Field field, SchemaNode node, ReadNode read) =>
-            new(names.GetValueOrDefault(node.Element, field.Name), RenameType(field.DataType, read), field.IsNullable, field.Metadata);
-
-        IArrowType RenameType(IArrowType type, ReadNode read) => (type, read.Kind) switch
-        {
-            (StructType s, ReadKind.Struct) when read.Node is { } node => new StructType([.. s.Fields.Select(f =>
-            {
-                int k = System.Array.FindIndex(node.Children, c => c.Name == f.Name);
-                return k < 0 ? f : Rename(f, node.Children[k], read.Children[k]);
-            })]),
-            (ListType l, ReadKind.List or ReadKind.FixedSizeList) => new ListType(Item(l.ValueField, read.Children[0])),
-            (LargeListType l, ReadKind.List or ReadKind.FixedSizeList) => new LargeListType(Item(l.ValueField, read.Children[0])),
-            (FixedSizeListType l, ReadKind.List or ReadKind.FixedSizeList) => new FixedSizeListType(Item(l.ValueField, read.Children[0]), l.ListSize),
-            (MapType m, ReadKind.Map) => new MapType(Item(m.KeyField, read.Children[0].Children[0]), Item(m.ValueField, read.Children[0].Children[1]), m.KeySorted),
-            _ => type,
-        };
-
-        // An element, key or value: its name kept (matched by position), its type renamed.
-        Field Item(Field field, ReadNode read) => new(field.Name, RenameType(field.DataType, read), field.IsNullable, field.Metadata);
     }
 
     /// <summary>The entries of a list's element or a map's key or value: by the node's name, else by position.</summary>
@@ -208,11 +153,5 @@ internal sealed class FieldIdProjection
         LargeListType l => l.ValueDataType,
         FixedSizeListType l => l.ValueDataType,
         _ => null,
-    };
-
-    private static SchemaElement Renamed(SchemaElement e, string name) => new()
-    {
-        Type = e.Type, TypeLength = e.TypeLength, Repetition = e.Repetition, Name = name, NumChildren = e.NumChildren,
-        ConvertedType = e.ConvertedType, Scale = e.Scale, Precision = e.Precision, FieldId = e.FieldId, LogicalType = e.LogicalType,
     };
 }

@@ -466,7 +466,9 @@ public sealed class CsvReader : IDisposable, IAsyncDisposable
                     .Where(m => !named.Contains(m) && string.Equals(m, names[c], StringComparison.OrdinalIgnoreCase))];
                 if (candidates.Length != 1) continue; // none, or members differing in case alone: not bound
                 if (taken.TryGetValue(candidates[0], out int other))
-                    throw new CsvFormatException($"The file's columns '{names[other]}' and '{names[c]}' both name the member '{candidates[0]}' (ignoring case): rename one of them.");
+                    throw new CsvFormatException(options.Dataset is null
+                        ? $"The file's columns '{names[other]}' and '{names[c]}' both name the member '{candidates[0]}' (ignoring case): rename one of them."
+                        : $"The file's columns '{names[other]}' and '{names[c]}' both match the dataset's '{candidates[0]}' ignoring case (CaseInsensitiveNames): rename one of them, or read the files with exact names.");
                 taken[candidates[0]] = c;
                 renamed[c] = candidates[0];
             }

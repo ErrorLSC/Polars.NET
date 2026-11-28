@@ -32,6 +32,8 @@ public sealed record ParquetDatasetOptions : DatasetOptions
         if (!Enum.IsDefined(FieldMatching)) throw new ArgumentOutOfRangeException(nameof(FieldMatching), FieldMatching, "Unknown field matching.");
         if (FieldMatching == ParquetFieldMatching.ByFieldId && Schema is null)
             throw new ArgumentException("Matching columns by field id needs the dataset's schema given (Schema), its fields with their ids (PARQUET:field_id).", nameof(FieldMatching));
+        if (CaseInsensitiveNames && FieldMatching == ParquetFieldMatching.ByFieldId)
+            throw new ArgumentException("Matching by field id leaves names out (a name mapping's names match as spelled): CaseInsensitiveNames does not go with it.", nameof(CaseInsensitiveNames));
         if (NameMapping is not null && FieldMatching != ParquetFieldMatching.ByFieldId)
             throw new ArgumentException("A name mapping gives files field ids: it goes with FieldMatching = ByFieldId.", nameof(NameMapping));
     }
