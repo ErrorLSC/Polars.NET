@@ -89,7 +89,7 @@ public sealed class ParquetDatasetReader : IDisposable, IAsyncDisposable
         if (options.Filter is { } given) options = options with { Filter = FilterShapes.normalize(given) };
         _dataset = dataset;
         _options = options;
-        _shape = new DatasetShape(dataset.Options, dataset.Partitions, dataset.PartitionField, dataset.ColumnsFor(options), dataset.Files.Count,
+        _shape = new DatasetShape(dataset.Options, dataset.Partitions, dataset.PartitionField, dataset.ColumnsFor(options), dataset.Files,
             options.Columns, options.ColumnPaths, options.Filter, options.FilterRows, options.RowIndexColumn, options.ViewTypes,
             PathOf, static (message, inner) => new ParquetFormatException(message, inner));
         _read = _shape.Read;
@@ -427,7 +427,7 @@ public sealed class ParquetDatasetReader : IDisposable, IAsyncDisposable
     private FilePlan Plan(ParquetFile file, int index, long before, long? remaining, ReadBudget? shared = null)
     {
         string path = PathOf(index);
-        ShapePlan shape = ShapePlanOf(file, path);
+        ShapePlan shape = ShapePlanOf(file, path, index);
         var (fileFilter, complete) = _shape.FileFilter(index, shape.Missing, shape.Dropped, shape.Has);
 
         bool after = FiltersExactly && _shape.FiltersAfter && !complete;
@@ -442,8 +442,8 @@ public sealed class ParquetDatasetReader : IDisposable, IAsyncDisposable
         try
         {
             int variant = after ? 1 : 0;
-            DatasetShape.Converted converted = Volatile.Read(ref shape.Converted[variant]) ?? _shape.Conversions(reader.Schema, after, path);
-            Volatile.Write(ref shape.Converted[variant], converted); // the same for every file of the shape
+            DatasetShape.Converted converted = Volatile.Read(ref shape.Converted[variant]) ?? _shape.Conversions(reader.Schema, after, path, index);
+            Volatile.Write(ref shape.Converted[variant], converted); // the same for every file of the shape (a file's own plan: its own)
             if (after) Interlocked.Increment(ref _filteredAfter);
             return new FilePlan(reader, converted, after);
         }
@@ -484,15 +484,23 @@ public sealed class ParquetDatasetReader : IDisposable, IAsyncDisposable
     private readonly object _plansLock = new();
     private readonly Dictionary<SchemaShape, ShapePlan> _plans = new(ReferenceEqualityComparer.Instance);
 
-    /// <summary>The plan of the file's shape: made once per shape (errors name the file that made it).</summary>
-    private ShapePlan ShapePlanOf(ParquetFile file, string path)
+    /// <summary>
+    /// The plan of the file's shape: made once per shape (errors name the file that made it); the file's own when it
+    /// lacks fields its own defaults name.
+    /// </summary>
+    private ShapePlan ShapePlanOf(ParquetFile file, string path, int index)
     {
+        if (_dataset.Files[index].Defaults is not null)
+        {
+            Dictionary<string, Field> own = Has(file, path);
+            if (_shape.OwnDefaultsApply(index, own)) return MakeShapePlan(own, path, index);
+        }
         SchemaShape key = file.Shape;
         lock (_plansLock)
         {
             if (_plans.TryGetValue(key, out ShapePlan? known)) return known;
         }
-        ShapePlan made = MakeShapePlan(file, path);
+        ShapePlan made = MakeShapePlan(Has(file, path), path, index);
         lock (_plansLock)
         {
             if (_plans.TryGetValue(key, out ShapePlan? known)) return known;
@@ -501,20 +509,23 @@ public sealed class ParquetDatasetReader : IDisposable, IAsyncDisposable
         return made;
     }
 
-    private ShapePlan MakeShapePlan(ParquetFile file, string path)
+    private ShapePlan MakeShapePlan(Dictionary<string, Field> has, string path, int index)
     {
-        Dictionary<string, Field> has;
+        DatasetShape.FileColumns columns = _shape.ColumnsOf(has, path, index);
+        return new ShapePlan { Has = has, Missing = columns.Missing, Dropped = columns.Dropped, Lists = columns.Lists };
+    }
+
+    /// <summary>The file's columns as these options read them, by name.</summary>
+    private Dictionary<string, Field> Has(ParquetFile file, string path)
+    {
         try
         {
-            has = file.Mapping(_options).Schema.FieldsList.ToDictionary(f => f.Name, StringComparer.Ordinal);
+            return file.Mapping(_options).Schema.FieldsList.ToDictionary(f => f.Name, StringComparer.Ordinal);
         }
         catch (ParquetFormatException e)
         {
             throw ParquetDataset.InFile(path, e);
         }
-
-        DatasetShape.FileColumns columns = _shape.ColumnsOf(has, path);
-        return new ShapePlan { Has = has, Missing = columns.Missing, Dropped = columns.Dropped, Lists = columns.Lists };
     }
 
     /// <summary>The file's reader: the columns read, and with <paramref name="after"/> the columns the dataset's filter reads, whole.</summary>

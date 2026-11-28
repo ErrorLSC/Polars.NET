@@ -51,13 +51,14 @@ internal static class ArrowWidening
 {
     /// <summary>The conversion from <paramref name="from"/> to <paramref name="to"/>, or the reason there is none.</summary>
     /// <param name="root">The path of the converted value in messages (a column's name).</param>
+    /// <param name="defaults">The defaults of the struct fields below the value that the source may lack (the value's own is not used).</param>
     public static bool TryCompile(IArrowType from, IArrowType to, ArrowConversionRules rules, string root,
-        [NotNullWhen(true)] out ArrowConversion? conversion, [NotNullWhen(false)] out ArrowConversionError? error)
+        [NotNullWhen(true)] out ArrowConversion? conversion, [NotNullWhen(false)] out ArrowConversionError? error, ArrowDefaults? defaults = null)
     {
         ArgumentNullException.ThrowIfNull(from);
         ArgumentNullException.ThrowIfNull(to);
         error = null;
-        conversion = Compile(from, to, rules, root, ref error);
+        conversion = Compile(from, to, rules, root, defaults, ref error);
         return conversion is not null;
     }
 
@@ -117,7 +118,8 @@ internal static class ArrowWidening
 
     // ---- compiling ------------------------------------------------------------------------------------------------
 
-    private static ArrowConversion? Compile(IArrowType from, IArrowType to, ArrowConversionRules rules, string path, ref ArrowConversionError? error)
+    private static ArrowConversion? Compile(IArrowType from, IArrowType to, ArrowConversionRules rules, string path, ArrowDefaults? defaults,
+        ref ArrowConversionError? error)
     {
         if (ArrowTypes.SameType(from, to)) return new IdentityConversion(to);
         switch (from, to)
@@ -131,12 +133,12 @@ internal static class ArrowWidening
                 if (!ArrowTypes.SameType(f.IndexType, t.IndexType) && !IntegerWidens((IntegerType)f.IndexType, (IntegerType)t.IndexType)
                     && ((IntegerType)t.IndexType).BitWidth < 32)
                     return Refuse(ArrowConversionProblem.Incompatible, ref error);
-                return Compile(f.ValueType, t.ValueType, rules, path, ref error) is { } values ? new DictionaryIndexConversion(t, values) : null;
+                return Compile(f.ValueType, t.ValueType, rules, path, defaults, ref error) is { } values ? new DictionaryIndexConversion(t, values) : null;
             }
             case (DictionaryType d, _):
-                return Compile(d.ValueType, to, rules, path, ref error) is { } decoded ? new DictionaryDecodeConversion(to, decoded) : null;
+                return Compile(d.ValueType, to, rules, path, defaults, ref error) is { } decoded ? new DictionaryDecodeConversion(to, decoded) : null;
             case (_, DictionaryType d):
-                return Compile(from, d.ValueType, rules, path, ref error) is { } encoded ? new DictionaryEncodeConversion(d, encoded) : null;
+                return Compile(from, d.ValueType, rules, path, defaults, ref error) is { } encoded ? new DictionaryEncodeConversion(d, encoded) : null;
             case (_, _) when SameFamily(from, to):
                 return new RelayoutConversion(to);
             case (IntegerType f, IntegerType t):
@@ -176,21 +178,21 @@ internal static class ArrowWidening
             case (DurationType f, DurationType t):
                 return Units(Rank(f.Unit), Rank(t.Unit), 8, 8, ref error);
             case (StructType f, StructType t):
-                return Struct(f, t, rules, path, ref error);
+                return Struct(f, t, rules, path, defaults, ref error);
             case (ListType or LargeListType or ListViewType or LargeListViewType, ListType or LargeListType or ListViewType or LargeListViewType):
-                return Compile(ListElement(from), ListElement(to), rules, path + "[]", ref error) is { } element ? new ListConversion(to, element) : null;
+                return Compile(ListElement(from), ListElement(to), rules, path + "[]", defaults, ref error) is { } element ? new ListConversion(to, element) : null;
             case (FixedSizeListType f, FixedSizeListType t) when f.ListSize == t.ListSize:
-                return Compile(f.ValueDataType, t.ValueDataType, rules, path + "[]", ref error) is { } items ? new FixedSizeListConversion(t, items) : null;
+                return Compile(f.ValueDataType, t.ValueDataType, rules, path + "[]", defaults, ref error) is { } items ? new FixedSizeListConversion(t, items) : null;
             case (MapType f, MapType t):
             {
-                if (Compile(f.KeyField.DataType, t.KeyField.DataType, rules, path + "{key}", ref error) is not { } key) return null;
-                if (Compile(f.ValueField.DataType, t.ValueField.DataType, rules, path + "{value}", ref error) is not { } value) return null;
+                if (Compile(f.KeyField.DataType, t.KeyField.DataType, rules, path + "{key}", defaults?.Field("key"), ref error) is not { } key) return null;
+                if (Compile(f.ValueField.DataType, t.ValueField.DataType, rules, path + "{value}", defaults?.Field("value"), ref error) is not { } value) return null;
                 return new ListConversion(to, new StructConversion(t.KeyValueType, [(0, key), (1, value)]));
             }
             // A map is a list of its key/value entries: read as such a list (an engine without a map type, e.g.),
             // the entries convert by field name like any struct.
             case (MapType f, ListType or LargeListType or ListViewType or LargeListViewType) when ListElement(to) is StructType:
-                return Compile(f.KeyValueType, ListElement(to), rules, path + "{}", ref error) is { } entries ? new ListConversion(to, entries) : null;
+                return Compile(f.KeyValueType, ListElement(to), rules, path + "{}", defaults, ref error) is { } entries ? new ListConversion(to, entries) : null;
             default:
                 return Refuse(ArrowConversionProblem.Incompatible, ref error);
         }
@@ -211,7 +213,8 @@ internal static class ArrowWidening
         }
     }
 
-    private static StructConversion? Struct(StructType from, StructType to, ArrowConversionRules rules, string path, ref ArrowConversionError? error)
+    private static StructConversion? Struct(StructType from, StructType to, ArrowConversionRules rules, string path, ArrowDefaults? defaults,
+        ref ArrowConversionError? error)
     {
         var fields = new (int Source, ArrowConversion Conversion)[to.Fields.Count];
         for (int i = 0; i < fields.Length; i++)
@@ -219,8 +222,15 @@ internal static class ArrowWidening
             Field target = to.Fields[i];
             string at = path.Length == 0 ? target.Name : $"{path}.{target.Name}";
             int source = from.GetFieldIndex(target.Name, StringComparer.Ordinal);
+            ArrowDefaults? below = defaults?.Field(target.Name);
             if (source < 0)
             {
+                // A field with a default declared may be missing: it reads as its default (nulls for a null one).
+                if (below is { Declared: true })
+                {
+                    fields[i] = (-1, below.ScalarFor(target.DataType) is { } value ? new ConstantConversion(value) : new NullsConversion(target.DataType));
+                    continue;
+                }
                 if (!rules.InsertMissingFields)
                 {
                     error = new ArrowConversionError(at, "the field is missing", ArrowConversionProblem.MissingField);
@@ -229,7 +239,7 @@ internal static class ArrowWidening
                 fields[i] = (-1, new NullsConversion(target.DataType));
                 continue;
             }
-            if (Compile(from.Fields[source].DataType, target.DataType, rules, at, ref error) is not { } conversion) return null;
+            if (Compile(from.Fields[source].DataType, target.DataType, rules, at, below, ref error) is not { } conversion) return null;
             fields[i] = (source, conversion);
         }
         return new StructConversion(to, fields);

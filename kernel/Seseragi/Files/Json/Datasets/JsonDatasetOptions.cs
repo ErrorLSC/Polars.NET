@@ -34,7 +34,12 @@ public sealed record JsonDatasetOptions : DatasetOptions
         if (Schema is not null && SchemaOverrides is not null) throw new ArgumentException("Give either a schema or schema overrides, not both.", nameof(SchemaOverrides));
         if (AllowLossyCasts) throw new ArgumentException("JSON values are decoded into the dataset's types: there is no conversion to allow.", nameof(AllowLossyCasts));
         if (UnifyDictionaries) throw new ArgumentException("JSON values are decoded into the dataset's types: there is no file's dictionary to unify.", nameof(UnifyDictionaries));
+        if (Defaults is not null) throw new ArgumentException(NoDefaults, nameof(Defaults));
     }
+
+    /// <summary>Why JSON datasets take no defaults.</summary>
+    internal const string NoDefaults = "JSON files have no columns of their own to lack (every file reads the dataset's columns, a record without a field "
+        + "reading null): defaults do not apply to them.";
 }
 
 /// <summary>A file of a JSON dataset (see <see cref="DatasetFile"/>).</summary>

@@ -73,7 +73,13 @@ way out, or nulls (`AllowMissingColumns`; always when united). With `FieldMatchi
 (and a given `Schema` whose columns and struct fields carry `PARQUET:field_id`) files' columns and struct fields match
 by field id instead, as Iceberg tables do: renamed, reordered, dropped and re-added columns read right, at any depth
 (through lists and maps), under the schema's names; fields without a matching id are not read; files written without
-ids take theirs from a `NameMapping` (Iceberg's `schema.name-mapping.default`, `NameMapping.Parse`). Polars Enums (at any depth) must have the same
+ids take theirs from a `NameMapping` (Iceberg's `schema.name-mapping.default`, `NameMapping.Parse`). `Defaults`
+(`ColumnDefault`: a path of names and a value) gives columns and struct fields a file lacks a value instead of nulls,
+as Iceberg's `initial-default` does: at any depth (fields of list elements and map values too), a struct's default
+`ColumnDefault.Struct` making a struct of its fields' own defaults; a field with a default may be missing without
+`AllowMissingColumns`; a file's own nulls stay null. A file's own `Defaults` (`ParquetDatasetFile`, `IpcDatasetFile`,
+`CsvDatasetFile`) come before the dataset's. Filters read a missing column as its default, so a file whose default
+rules the filter out is not read. JSON datasets take none (their files have no columns of their own). Polars Enums (at any depth) must have the same
 categories in every file, and an Enum never meets a column that is none, unless the given `Schema` declares the column
 as plain values. `UnifyDictionaries` reads every dictionary column (at any depth) with one dictionary for the dataset:
 values numbered as first seen, indices of the type the given `Schema` declares (else Int32; more distinct values than

@@ -317,6 +317,7 @@ public sealed class ParquetDataset : IDisposable, IAsyncDisposable
             schema = SchemaOf(files[0].Path, first.Metadata, new ParquetReadOptions());
         }
         Partitions? partitions = DatasetFiles.PartitionsOf(files, options, hiveStart, schema);
+        DatasetShape.CheckDefaults(options, partitions, schema, files);
         return new ParquetDataset(store, options, files, kept, interner, firstFooter, schema, partitions);
     }
 

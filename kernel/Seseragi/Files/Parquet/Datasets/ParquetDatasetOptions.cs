@@ -65,5 +65,7 @@ public enum ParquetFieldMatching
 /// <param name="PartitionValues">The file's partition values by column (see <see cref="DatasetFile.PartitionValues"/>).</param>
 /// <param name="Rows">The rows to read, by their numbers in the file (a deletion vector's complement); null reads every row.</param>
 /// <param name="Metadata">The footer, read before (<see cref="ParquetFile.Metadata"/> of the same file); null reads it.</param>
+/// <param name="Defaults">The values of columns and struct fields this file lacks (see <see cref="DatasetFile.Defaults"/>).</param>
 public sealed record ParquetDatasetFile(string Path, long? Size = null, IReadOnlyDictionary<string, object?>? PartitionValues = null,
-    Sazanami.Rows.RowRanges? Rows = null, ParquetMetadata? Metadata = null) : DatasetFile(Path, Size, PartitionValues);
+    Sazanami.Rows.RowRanges? Rows = null, ParquetMetadata? Metadata = null, IReadOnlyList<ColumnDefault>? Defaults = null)
+    : DatasetFile(Path, Size, PartitionValues, Defaults);

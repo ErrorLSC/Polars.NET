@@ -113,6 +113,18 @@ internal sealed unsafe class NullsConversion(IArrowType target) : ArrowConversio
     internal override NativeCArray* Build(NativeBatchExport export, ArrayData source) => NullArrays.Build(export, Target, source.Length);
 }
 
+/// <summary>Arrays repeating one value, as long as the source (a field the source lacks that has a default).</summary>
+internal sealed unsafe class ConstantConversion(ArrowScalar value) : ArrowConversion(value.Type)
+{
+    /// <summary>The value repeated.</summary>
+    public ArrowScalar Value { get; } = value;
+
+    /// <summary><paramref name="length"/> rows of the value.</summary>
+    public IArrowArray Of(int length) => ConstantArrays.Of(Value, length);
+
+    internal override NativeCArray* Build(NativeBatchExport export, ArrayData source) => ConstantArrays.Build(export, Value, source.Length);
+}
+
 /// <summary>Numbers into numbers (integers, floats): each value converted as the CLR converts it.</summary>
 internal static class NumericConversion
 {
@@ -287,8 +299,9 @@ internal sealed unsafe class StructConversion(IArrowType target, (int Source, Ar
         for (int i = 0; i < fields.Length; i++)
         {
             var (from, conversion) = fields[i];
+            // A field the source lacks: nulls or its default, as long as the struct.
             children[i] = from < 0
-                ? (nint)NullArrays.Build(export, conversion.Target, source.Length)
+                ? (nint)conversion.Build(export, source)
                 : (nint)conversion.Build(export, source.Children[from].Slice(source.Offset, source.Length));
         }
         return export.NewArray(source.Length, nulls, [validity], children);

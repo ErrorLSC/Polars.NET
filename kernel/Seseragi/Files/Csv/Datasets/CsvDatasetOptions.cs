@@ -53,5 +53,6 @@ public sealed record CsvDatasetOptions : DatasetOptions
 /// <param name="Path">The path, as the store spells it.</param>
 /// <param name="Size">The size in bytes, when known (else the store is asked).</param>
 /// <param name="PartitionValues">The file's partition values by column (see <see cref="DatasetFile.PartitionValues"/>).</param>
-public sealed record CsvDatasetFile(string Path, long? Size = null, IReadOnlyDictionary<string, object?>? PartitionValues = null)
-    : DatasetFile(Path, Size, PartitionValues);
+/// <param name="Defaults">The values of columns this file lacks (see <see cref="DatasetFile.Defaults"/>).</param>
+public sealed record CsvDatasetFile(string Path, long? Size = null, IReadOnlyDictionary<string, object?>? PartitionValues = null,
+    IReadOnlyList<ColumnDefault>? Defaults = null) : DatasetFile(Path, Size, PartitionValues, Defaults);

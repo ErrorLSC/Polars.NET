@@ -201,6 +201,7 @@ public sealed class JsonDataset : IDisposable, IAsyncDisposable
     {
         options ??= new JsonDatasetOptions();
         options.Validate();
+        if (files.Any(f => f?.Defaults is not null)) throw new ArgumentException(JsonDatasetOptions.NoDefaults, nameof(files));
         var (store, hiveStart) = DatasetFiles.Given(files, options);
         return await FromFilesAsync(store, options, files, hiveStart, useAsync, ct).ConfigureAwait(false);
     }

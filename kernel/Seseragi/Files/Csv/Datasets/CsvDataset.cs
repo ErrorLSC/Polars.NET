@@ -231,6 +231,7 @@ public sealed class CsvDataset : IDisposable, IAsyncDisposable
             inferredFrom = options.Format.InferSchemaLength ?? int.MaxValue;
         }
         Partitions? partitions = DatasetFiles.PartitionsOf(files, options, hiveStart, schema);
+        DatasetShape.CheckDefaults(options, partitions, schema, files);
         return new CsvDataset(store, options, files, versions, schema, inferredFrom, partitions);
     }
 
@@ -314,7 +315,8 @@ public sealed class CsvDataset : IDisposable, IAsyncDisposable
             }
             else
             {
-                if (names.FirstOrDefault(n => !head.Names.Contains(n)) is { } lacking)
+                // A column with a default (the dataset's or the file's) may be missing.
+                if (names.FirstOrDefault(n => !head.Names.Contains(n) && !Defaulted(n, files[i])) is { } lacking)
                     throw new CsvFormatException($"{files[i].Path}: the file lacks the column '{lacking}' of the dataset's first file " +
                         $"({string.Join(", ", names)}): give AllowMissingColumns = true to read it as nulls.");
                 if (!options.IgnoreExtraColumns && head.Names.FirstOrDefault(n => !known.Contains(n)) is { } extra)
@@ -366,6 +368,9 @@ public sealed class CsvDataset : IDisposable, IAsyncDisposable
         {
             if (known.Add(name)) names.Add(name);
         }
+
+        bool Defaulted(string name, CsvDatasetFile file) =>
+            (options.Defaults ?? []).Concat(file.Defaults ?? []).Any(d => d?.Path is [var column] && column == name);
     }
 
     /// <summary>

@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using Apache.Arrow;
 using Apache.Arrow.Types;
 using Kaminari.Samidare.IR;
@@ -34,6 +35,9 @@ internal sealed class DatasetShape
     private readonly string[] _filterColumns = [];              // the columns the files' conjuncts read
     private readonly ScalarExpr? _rowFilter;              // what the rows delivered must pass (the conjuncts not decided per file)
     private readonly FilterProgram? _program;             // _rowFilter as the dataset applies it after converting (exact)
+    private readonly IReadOnlyList<DatasetFile> _files;
+    private readonly ArrowDefaults? _defaults;            // the dataset's defaults (DatasetOptions.Defaults)
+    private readonly ArrowDefaults?[]? _fileDefaults;     // per file with defaults of its own: those over the dataset's
 
     /// <summary>A column from files selected: whole, or the struct fields on its paths; its type in the batches.</summary>
     internal sealed record Target(string Name, string[][]? Paths, Field Field);
@@ -55,7 +59,7 @@ internal sealed class DatasetShape
     /// <param name="partitions">The partition values of the files, when partitioned.</param>
     /// <param name="partitionField">Partition column <c>p</c> as batches hold it, strings as views or not.</param>
     /// <param name="columns">The dataset's columns from files, as these options read them.</param>
-    /// <param name="files">How many files the dataset has.</param>
+    /// <param name="files">The dataset's files (their defaults).</param>
     /// <param name="selected">The columns selected by name (with <paramref name="paths"/>; both null: all).</param>
     /// <param name="paths">The struct fields selected (each path from a top-level column).</param>
     /// <param name="filter">The filter (canonical), or null.</param>
@@ -64,7 +68,7 @@ internal sealed class DatasetShape
     /// <param name="views">Whether strings added (partition values, the file path) are views.</param>
     /// <param name="pathOf">File <c>i</c>'s path.</param>
     /// <param name="error">The format's error for a message (naming the file) and its cause.</param>
-    public DatasetShape(DatasetOptions dataset, Partitions? partitions, Func<int, bool, Field> partitionField, Schema columns, int files,
+    public DatasetShape(DatasetOptions dataset, Partitions? partitions, Func<int, bool, Field> partitionField, Schema columns, IReadOnlyList<DatasetFile> files,
         IReadOnlyList<string>? selected, IReadOnlyList<string[]>? paths, ScalarExpr? filter, bool filterRows, string? rowIndexColumn, bool views,
         Func<int, string> pathOf, Func<string, Exception?, Exception> error)
     {
@@ -82,6 +86,12 @@ internal sealed class DatasetShape
         bool PerFile(string name) => IsPartition(name) || name == dataset.FilePathColumn;
 
         Columns = columns.FieldsList.ToDictionary(f => f.Name, StringComparer.Ordinal);
+
+        // The defaults of missing fields: the dataset's, and files' own over them.
+        // Checked against every column when the dataset opened (CheckDefaults): those of columns these options do not
+        // read (typed rows) are passed over.
+        _files = files;
+        (_defaults, _fileDefaults) = DefaultsOf(dataset, partitions, columns, files, onlyColumns: true);
 
         // The columns selected: from files (not shadowed by a partition column), and partition columns (the file path
         // column, always last when asked, may be named too: the dataset's schema lists it).
@@ -113,7 +123,7 @@ internal sealed class DatasetShape
 
         // The filter: conjuncts over values per file only (partition columns, the file path) decide which files are
         // read; the others go to the files, those over both with each file's values put in.
-        Read = [.. Enumerable.Repeat(true, files)];
+        Read = [.. Enumerable.Repeat(true, files.Count)];
         bool exact = true;
         List<ScalarExpr> onFiles = [], mixed = [];
         if (filter is not null)
@@ -193,7 +203,7 @@ internal sealed class DatasetShape
             if (dataset.FilePathColumn is { } file && !IsPartition(file))
             {
                 var builder = new StringArray.Builder();
-                for (int i = 0; i < files; i++) builder.Append(pathOf(i));
+                for (int i = 0; i < files.Count; i++) builder.Append(pathOf(i));
                 built = builder.Build(PooledArrowAllocator.Instance);
                 fields.Add(PathField(file, views: false));
                 values.Add(built);
@@ -218,6 +228,36 @@ internal sealed class DatasetShape
         }
         if (_dataset.FilePathColumn is { } file && !fields.Any(f => f.Name == file)) fields.Add(PathField(file, _views));
         return new Schema(fields, null);
+    }
+
+    /// <summary>
+    /// Checks the defaults of a dataset that opens (<see cref="DatasetOptions.Defaults"/>, the files' own) against its
+    /// columns from files: errors come when it opens, not when it is read.
+    /// </summary>
+    /// <exception cref="ArgumentException">A default names no field of the dataset, or one whose values come from elsewhere, or its value is not of the field's type.</exception>
+    public static void CheckDefaults(DatasetOptions dataset, Partitions? partitions, Schema columns, IReadOnlyList<DatasetFile> files) =>
+        DefaultsOf(dataset, partitions, columns, files, onlyColumns: false);
+
+    /// <summary>
+    /// The dataset's defaults and, per file with its own, those over the dataset's (null when no file has any);
+    /// defaults of top-level columns <c>columns</c> lacks passed over with <c>onlyColumns</c> (else an error).
+    /// </summary>
+    private static (ArrowDefaults? Dataset, ArrowDefaults?[]? Files) DefaultsOf(DatasetOptions dataset, Partitions? partitions, Schema columns,
+        IReadOnlyList<DatasetFile> files, bool onlyColumns)
+    {
+        string? NotFromFiles(string name) =>
+            partitions?.IndexOf(name) >= 0 ? "it is a partition column (its values come with the files)"
+            : name == dataset.FilePathColumn ? "it is the file path column"
+            : null;
+        ArrowDefaults? defaults = ColumnDefaults.Build(dataset.Defaults, columns, NotFromFiles, $"{dataset.Name}.Defaults", onlyColumns);
+        ArrowDefaults?[]? own = null;
+        for (int i = 0; i < files.Count; i++)
+        {
+            if (files[i].Defaults is not { } given) continue;
+            own ??= new ArrowDefaults?[files.Count];
+            own[i] = ArrowDefaults.Merge(ColumnDefaults.Build(given, columns, NotFromFiles, $"The defaults of '{files[i].Path}'", onlyColumns), defaults);
+        }
+        return (defaults, own);
     }
 
     /// <summary>The schema of the batches: the row index if asked, the columns read (nullable), the file path if asked.</summary>
@@ -264,9 +304,13 @@ internal sealed class DatasetShape
 
     // ---- one file -------------------------------------------------------------------------------------------------
 
-    /// <summary>What a file whose columns are <paramref name="has"/> reads (errors name <paramref name="path"/>).</summary>
-    public FileColumns ColumnsOf(Dictionary<string, Field> has, string path)
+    /// <summary>
+    /// What file <paramref name="index"/>, whose columns are <paramref name="has"/>, reads (errors name
+    /// <paramref name="path"/>). The same for every file of these columns unless <see cref="OwnDefaultsApply"/>.
+    /// </summary>
+    public FileColumns ColumnsOf(Dictionary<string, Field> has, string path, int index)
     {
+        ArrowDefaults? defaults = DefaultsOf(index);
         // What the file's reader reads: whole columns and paths (those the file has).
         HashSet<string> whole = new(StringComparer.Ordinal);
         List<string[]> paths = [];
@@ -274,7 +318,7 @@ internal sealed class DatasetShape
         {
             if (!has.TryGetValue(target.Name, out Field? field))
             {
-                if (!_allowMissing) throw Missing(path, target.Name, filter: false);
+                if (!_allowMissing && !MayLack(defaults, null, [target.Name])) throw Missing(path, target.Name, filter: false);
                 continue;
             }
             if (target.Paths is null)
@@ -283,8 +327,9 @@ internal sealed class DatasetShape
                 continue;
             }
             string[][] kept = [.. target.Paths.Where(p => Exists(field.DataType, p, 0))];
-            if (kept.Length < target.Paths.Length && !_allowMissing)
-                throw Missing(path, string.Join('.', [target.Name, .. target.Paths.First(p => !Exists(field.DataType, p, 0))]), filter: false);
+            if (kept.Length < target.Paths.Length && !_allowMissing
+                && target.Paths.FirstOrDefault(p => !Exists(field.DataType, p, 0) && !MayLack(defaults, field.DataType, [target.Name, .. p])) is { } lacked)
+                throw Missing(path, string.Join('.', [target.Name, .. lacked]), filter: false);
             // Every field selected missing: the column is read whole (its rows' nulls), its fields then left out.
             if (kept.Length == 0) whole.Add(target.Name);
             else paths.AddRange(kept.Select(p => (string[])[target.Name, .. p]));
@@ -300,7 +345,7 @@ internal sealed class DatasetShape
                 if (!Columns.TryGetValue(root, out Field? target) || _partitions?.IndexOf(root) >= 0) continue;
                 if (!has.TryGetValue(root, out Field? field))
                 {
-                    if (!_allowMissing) throw Missing(path, root, filter: true);
+                    if (!_allowMissing && !MayLack(defaults, null, [root])) throw Missing(path, root, filter: true);
                     missing.Add(root);
                 }
                 else if (!ArrowWidening.CanConvert(field.DataType, target.DataType, default)) dropped.Add(root);
@@ -318,22 +363,66 @@ internal sealed class DatasetShape
             [([.. whole], paths.Count == 0 ? null : paths), ([.. withFilter], pathsWithFilter.Count == 0 ? null : pathsWithFilter)]);
     }
 
-    /// <summary>How the columns of a file's batches (<paramref name="read"/>) convert to the dataset's.</summary>
-    public Converted Conversions(Schema read, bool after, string path)
+    /// <summary>
+    /// How the columns of file <paramref name="index"/>'s batches (<paramref name="read"/>) convert to the dataset's: the
+    /// same for every file of these columns unless <see cref="OwnDefaultsApply"/>.
+    /// </summary>
+    public Converted Conversions(Schema read, bool after, string path, int index)
     {
         int skip = _rowIndex is null ? 0 : 1;
+        ArrowDefaults? defaults = DefaultsOf(index);
         var outputs = new (int, ArrowConversion)[Targets.Length];
-        for (int t = 0; t < Targets.Length; t++) outputs[t] = Conversion(read, skip, Targets[t].Name, Targets[t].Field, path);
+        for (int t = 0; t < Targets.Length; t++) outputs[t] = Conversion(read, skip, Targets[t].Name, Targets[t].Field, path, defaults?.Field(Targets[t].Name));
         var filtered = after ? new (int, ArrowConversion)[FilterRoots.Length] : [];
-        for (int f = 0; f < filtered.Length; f++) filtered[f] = Conversion(read, skip, FilterRoots[f], Columns[FilterRoots[f]], path);
+        for (int f = 0; f < filtered.Length; f++) filtered[f] = Conversion(read, skip, FilterRoots[f], Columns[FilterRoots[f]], path, defaults?.Field(FilterRoots[f]));
         return new Converted(outputs, filtered);
     }
 
+    /// <summary>The defaults of file <paramref name="index"/>'s missing fields: its own over the dataset's.</summary>
+    private ArrowDefaults? DefaultsOf(int index) => _fileDefaults?[index] ?? _defaults;
+
     /// <summary>
-    /// Where a column comes from in the reader's batches (-1 when the file lacks it: nulls) and how it converts to
-    /// <paramref name="targetField"/>; a conversion the rules refuse is an error naming the file, the column and what allows it.
+    /// Whether file <paramref name="index"/>, whose columns are <paramref name="has"/>, lacks a field its own defaults
+    /// name (or one above it): what it reads (<see cref="ColumnsOf"/>, <see cref="Conversions"/>) is then its own, not
+    /// that of the other files of these columns.
     /// </summary>
-    private (int Source, ArrowConversion Conversion) Conversion(Schema read, int skip, string name, Field targetField, string path)
+    public bool OwnDefaultsApply(int index, IReadOnlyDictionary<string, Field> has) =>
+        _fileDefaults?[index] is not null
+        && _files[index].Defaults!.Any(d => !has.TryGetValue(d.Path[0], out Field? field) || !Exists(field.DataType, [.. d.Path.Skip(1)], 0));
+
+    /// <summary>
+    /// Whether a file may lack the first field on <paramref name="path"/> it lacks (the column when
+    /// <paramref name="type"/>, the file's column, is null): a default is declared for it.
+    /// </summary>
+    private static bool MayLack(ArrowDefaults? defaults, IArrowType? type, string[] path)
+    {
+        ArrowDefaults? node = defaults?.Field(path[0]);
+        for (int at = 1; type is not null && at < path.Length; at++)
+        {
+            type = Below(type, path[at]);
+            node = node?.Field(path[at]);
+        }
+        return type is not null || node is { Declared: true };
+
+        // The field below a type (through lists), or null.
+        static IArrowType? Below(IArrowType type, string name)
+        {
+            while (type is ListType or LargeListType or ListViewType or LargeListViewType or FixedSizeListType) type = ArrowWidening.ListElement(type);
+            return type switch
+            {
+                StructType s => s.GetFieldIndex(name, StringComparer.Ordinal) is int i and >= 0 ? s.Fields[i].DataType : null,
+                MapType m => name switch { "key" => m.KeyField.DataType, "value" => m.ValueField.DataType, _ => null },
+                _ => null,
+            };
+        }
+    }
+
+    /// <summary>
+    /// Where a column comes from in the reader's batches (-1 when the file lacks it: its default, else nulls) and how it
+    /// converts to <paramref name="targetField"/> (struct fields it lacks as their <paramref name="defaults"/> say); a
+    /// conversion the rules refuse is an error naming the file, the column and what allows it.
+    /// </summary>
+    private (int Source, ArrowConversion Conversion) Conversion(Schema read, int skip, string name, Field targetField, string path, ArrowDefaults? defaults)
     {
         IArrowType target = targetField.DataType;
         int at = -1;
@@ -341,15 +430,15 @@ internal sealed class DatasetShape
         {
             if (read.FieldsList[c].Name == name) at = c;
         }
-        if (at < 0) return (-1, new NullsConversion(target));
+        if (at < 0) return (-1, defaults?.ScalarFor(target) is { } value ? new ConstantConversion(value) : new NullsConversion(target));
         IArrowType type = read.FieldsList[at].DataType;
         if (EnumMismatch(read.FieldsList[at], targetField, name, declared: _dataset.Schema is not null) is { } mismatch)
             throw _error($"{path}: {mismatch}", null);
-        if (ArrowWidening.TryCompile(type, target, _rules, name, out ArrowConversion? conversion, out ArrowConversionError? error)) return (at, conversion);
+        if (ArrowWidening.TryCompile(type, target, _rules, name, out ArrowConversion? conversion, out ArrowConversionError? error, defaults)) return (at, conversion);
         string hint = error.Problem switch
         {
             ArrowConversionProblem.Lossy => $" ({_dataset.Name}.AllowLossyCasts allows lossy conversions)",
-            ArrowConversionProblem.MissingField => $" ({_dataset.Name}.AllowMissingColumns reads missing columns and fields as nulls)",
+            ArrowConversionProblem.MissingField => $" ({_dataset.Name}.AllowMissingColumns reads missing columns and fields as nulls, a default as its value)",
             _ when _dataset.Schema is null && _dataset.SchemaMode == DatasetSchemaMode.FirstFile && ArrowWidening.CanConvert(target, type, _rules) =>
                 " (the dataset's types are the first file's: SchemaMode.UnionByName or a given Schema reads wider types in later files)",
             _ => "",
@@ -410,7 +499,7 @@ internal sealed class DatasetShape
 
     private Exception Missing(string path, string column, bool filter) =>
         _error($"{path}: the file has no column '{column}', which the dataset {(filter ? "filters on" : "reads")} "
-            + $"({_dataset.Name}.AllowMissingColumns reads missing columns and fields as nulls).", null);
+            + $"({_dataset.Name}.AllowMissingColumns reads missing columns and fields as nulls, {_dataset.Name}.Defaults as their defaults).", null);
 
     /// <summary>Whether a path of field names (through lists, and maps by key and value) leads to a field of the type.</summary>
     private static bool Exists(IArrowType type, string[] path, int at)
@@ -611,10 +700,10 @@ internal sealed class DatasetShape
     /// </summary>
     public Schema Output => _dataset.UnifyDictionaries && _dataset.Schema is { } given ? DictionaryUnifier.Declared(Schema, given) : Schema;
 
-    /// <summary>A column of the batch converted (the batch's own when nothing changes, marked used), or nulls when the file lacks it.</summary>
+    /// <summary>A column of the batch converted (the batch's own when nothing changes, marked used), or its default (or nulls) when the file lacks it.</summary>
     private static IArrowArray Convert(RecordBatch batch, (int Source, ArrowConversion Conversion) plan, int length, bool[] used)
     {
-        if (plan.Source < 0) return NullArrays.Of(plan.Conversion.Target, length);
+        if (plan.Source < 0) return plan.Conversion is ConstantConversion constant ? constant.Of(length) : NullArrays.Of(plan.Conversion.Target, length);
         IArrowArray source = batch.Column(plan.Source);
         if (plan.Conversion.IsIdentity)
         {
@@ -658,7 +747,8 @@ internal sealed class DatasetShape
 
     /// <summary>
     /// The filter file <paramref name="index"/> reads: the conjuncts over its columns, those over partition columns
-    /// too with its values, columns it lacks (<paramref name="missing"/>) as nulls; conjuncts over
+    /// too with its values, columns it lacks (<paramref name="missing"/>) as their defaults (nulls when none; a default
+    /// of no literal form leaves its conjuncts out); conjuncts over
     /// <paramref name="dropped"/> columns are left out. A column the file stores as a narrower number than the
     /// dataset's (<paramref name="has"/>) is cast up where arithmetic reads it, so that the arithmetic is the dataset's
     /// (an Int32 file's column of an Int64 dataset wraps where the dataset does); a conjunct with arithmetic over a column
@@ -705,8 +795,14 @@ internal sealed class DatasetShape
                     return FSharpOption<ScalarExpr>.Some(ScalarExpr.NewCast(ScalarExpr.NewColumn(name), LogicalType.NewArrow(meant), false));
                 if (missing.Contains(name))
                 {
+                    LiteralValue? value = DefaultsOf(index)?.Field(name)?.ScalarFor(_types[name]) is { } scalar ? Literal(scalar) : LiteralValue.NewNull(LogicalTypes.Null);
+                    if (value is null)
+                    {
+                        complete = false;
+                        return FSharpOption<ScalarExpr>.None;
+                    }
                     changed = true;
-                    return FSharpOption<ScalarExpr>.Some(ScalarExpr.NewLiteral(LiteralValue.NewNull(LogicalTypes.Null)));
+                    return FSharpOption<ScalarExpr>.Some(ScalarExpr.NewLiteral(value));
                 }
                 int p = partitions?.IndexOf(name) ?? -1;
                 if (p < 0 && name == _dataset.FilePathColumn)
@@ -735,6 +831,32 @@ internal sealed class DatasetShape
             filter = filter is null ? substituted : ScalarExpr.NewBinary(BinaryOp.And, filter, substituted);
         }
         return (filter, all);
+    }
+
+    /// <summary>A default value as an IR literal (a dictionary's as its value's); null for a type without one.</summary>
+    private static LiteralValue? Literal(ArrowScalar scalar)
+    {
+        if (scalar.Value is null) return LiteralValue.NewNull(LogicalTypes.Null);
+        if (scalar.Value is ArrowScalar inner) return Literal(inner);
+        return scalar.Type switch
+        {
+            BooleanType => LiteralValue.NewBool((bool)scalar.Value),
+            Int8Type => LiteralValue.NewInt8((sbyte)Bytes()[0]),
+            Int16Type => LiteralValue.NewInt16(BinaryPrimitives.ReadInt16LittleEndian(Bytes())),
+            Int32Type => LiteralValue.NewInt32(BinaryPrimitives.ReadInt32LittleEndian(Bytes())),
+            Int64Type => LiteralValue.NewInt64(BinaryPrimitives.ReadInt64LittleEndian(Bytes())),
+            UInt8Type => LiteralValue.NewUInt8(Bytes()[0]),
+            UInt16Type => LiteralValue.NewUInt16(BinaryPrimitives.ReadUInt16LittleEndian(Bytes())),
+            UInt32Type => LiteralValue.NewUInt32(BinaryPrimitives.ReadUInt32LittleEndian(Bytes())),
+            UInt64Type => LiteralValue.NewUInt64(BinaryPrimitives.ReadUInt64LittleEndian(Bytes())),
+            FloatType => LiteralValue.NewFloat32(BinaryPrimitives.ReadSingleLittleEndian(Bytes())),
+            DoubleType => LiteralValue.NewFloat64(BinaryPrimitives.ReadDoubleLittleEndian(Bytes())),
+            Date32Type => LiteralValue.NewDate(DateOnly.FromDayNumber(DateOnly.FromDateTime(DateTime.UnixEpoch).DayNumber + BinaryPrimitives.ReadInt32LittleEndian(Bytes()))),
+            StringType or LargeStringType or StringViewType => LiteralValue.NewString(System.Text.Encoding.UTF8.GetString(Bytes())),
+            _ => null,
+        };
+
+        byte[] Bytes() => (byte[])scalar.Value!;
     }
 
     /// <summary>A partition value as an IR literal; null for a null value or a type without one.</summary>

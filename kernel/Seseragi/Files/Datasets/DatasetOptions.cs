@@ -66,6 +66,14 @@ public abstract record DatasetOptions
     public bool AllowMissingColumns { get; init; }
 
     /// <summary>
+    /// The values that columns and struct fields a file lacks read as (a table's defaults: columns added after files were
+    /// written), instead of nulls; see <see cref="ColumnDefault"/>. A field with a default may be missing from files
+    /// without <see cref="AllowMissingColumns"/>. A file's own <see cref="DatasetFile.Defaults"/> come first. Filters
+    /// read a missing column as its default (a file whose default rules it out is not read). Null: none.
+    /// </summary>
+    public IReadOnlyList<ColumnDefault>? Defaults { get; init; }
+
+    /// <summary>
     /// Whether files' columns may convert to the dataset's types by conversions that approximate values (off by
     /// default: only lossless widenings): integers and decimals into floats that cannot hold them exactly (the
     /// nearest float), floats into narrower floats, times, timestamps and durations into a coarser unit (rounded
@@ -129,6 +137,7 @@ public abstract record DatasetOptions
             if (schema.FieldsList.Select(f => f.Name).Distinct(StringComparer.Ordinal).Count() != schema.FieldsList.Count)
                 throw new ArgumentException("The partition schema names a column twice.", nameof(PartitionSchema));
         }
+        foreach (ColumnDefault entry in Defaults ?? []) ColumnDefaults.CheckPath(entry, $"{Name}.Defaults");
         if (FilePathColumn is "") throw new ArgumentException("The file path column needs a name.", nameof(FilePathColumn));
         if (IgnorePrefixes?.Any(string.IsNullOrEmpty) == true)
             throw new ArgumentException("A prefix of files to leave out is empty (it would leave out every file).", nameof(IgnorePrefixes));
@@ -147,7 +156,12 @@ public abstract record DatasetOptions
 /// TimeOnly, DateTime, DateTimeOffset, string), or strings read as Hive values; null values allowed. Every file then gives every
 /// column of the schema.
 /// </param>
-public abstract record DatasetFile(string Path, long? Size = null, IReadOnlyDictionary<string, object?>? PartitionValues = null);
+/// <param name="Defaults">
+/// The values of columns and struct fields this file lacks, over the dataset's <see cref="DatasetOptions.Defaults"/>
+/// (Iceberg's identity-partition values of a file written without the column, e.g.); see <see cref="ColumnDefault"/>.
+/// </param>
+public abstract record DatasetFile(string Path, long? Size = null, IReadOnlyDictionary<string, object?>? PartitionValues = null,
+    IReadOnlyList<ColumnDefault>? Defaults = null);
 
 /// <summary>Whether the <c>key=value</c> directories of a dataset's paths give partition columns.</summary>
 public enum HivePartitioning

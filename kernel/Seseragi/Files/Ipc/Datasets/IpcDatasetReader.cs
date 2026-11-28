@@ -57,7 +57,7 @@ public sealed class IpcDatasetReader : IDisposable, IAsyncDisposable
         if (options.Filter is { } given) options = options with { Filter = FilterShapes.normalize(given) };
         _dataset = dataset;
         _options = options;
-        _shape = new DatasetShape(dataset.Options, dataset.Partitions, dataset.PartitionField, dataset.FileSchema, dataset.Files.Count,
+        _shape = new DatasetShape(dataset.Options, dataset.Partitions, dataset.PartitionField, dataset.FileSchema, dataset.Files,
             options.Columns, null, options.Filter, options.FilterRows, options.RowIndexColumn, views: true,
             PathOf, static (message, inner) => new IpcFormatException(message, inner));
         _read = _shape.Read;
@@ -225,7 +225,7 @@ public sealed class IpcDatasetReader : IDisposable, IAsyncDisposable
         string path = PathOf(index);
         Dictionary<string, Field> has = new(StringComparer.Ordinal);
         foreach (Field field in file.Schema.FieldsList) has.TryAdd(field.Name, field);
-        DatasetShape.FileColumns columns = _shape.ColumnsOf(has, path);
+        DatasetShape.FileColumns columns = _shape.ColumnsOf(has, path, index);
         var (fileFilter, complete) = _shape.FileFilter(index, columns.Missing, columns.Dropped, has);
 
         bool after = FiltersExactly && _shape.FiltersAfter && !complete;
@@ -240,7 +240,7 @@ public sealed class IpcDatasetReader : IDisposable, IAsyncDisposable
         try
         {
             if (after) Interlocked.Increment(ref _filteredAfter);
-            return new FilePlan(reader, _shape.Conversions(reader.Schema, after, path), after);
+            return new FilePlan(reader, _shape.Conversions(reader.Schema, after, path, index), after);
         }
         catch
         {

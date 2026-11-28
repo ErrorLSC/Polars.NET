@@ -221,6 +221,7 @@ public sealed class IpcDataset : IDisposable, IAsyncDisposable
             throw new IpcFormatException($"{files[0].Path}: column '{twice.Key}' appears {twice.Count()} times: a dataset's columns have names of their own "
                 + "(read the file with IpcFile instead).");
         Partitions? partitions = DatasetFiles.PartitionsOf(files, options, hiveStart, schema);
+        DatasetShape.CheckDefaults(options, partitions, schema, files);
         return new IpcDataset(store, options, files, kept, schema, partitions);
 
         static Schema Nullable(Schema schema) =>

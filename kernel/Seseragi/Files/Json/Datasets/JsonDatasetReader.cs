@@ -56,7 +56,7 @@ public sealed class JsonDatasetReader : IDisposable, IAsyncDisposable
         _options = options;
         _document = dataset.Options.Format == JsonFormat.Document;
         _indexed = options.RowIndexColumn is not null;
-        _shape = new DatasetShape(dataset.Options, dataset.Partitions, dataset.PartitionField, dataset.FileSchema, dataset.Files.Count,
+        _shape = new DatasetShape(dataset.Options, dataset.Partitions, dataset.PartitionField, dataset.FileSchema, dataset.Files,
             options.Columns, null, options.Filter, options.FilterRows, options.RowIndexColumn, views: true,
             PathOf, static (message, inner) => new JsonFormatException(message, inner));
         _read = _shape.Read;
@@ -249,7 +249,7 @@ public sealed class JsonDatasetReader : IDisposable, IAsyncDisposable
             }
             if (after) Interlocked.Increment(ref _filteredAfter);
             Schema decoded = plan.Settings.Indexed ?? plan.Filter?.Selected ?? plan.Settings.Schema;
-            var made = new FilePlan(plan.Settings, plan.Filter, _shape.Conversions(decoded, after, path), after);
+            var made = new FilePlan(plan.Settings, plan.Filter, _shape.Conversions(decoded, after, path, index: 0), after); // JSON files take no defaults: one plan
             Interlocked.Increment(ref _plansMade);
             Volatile.Write(ref _shared, new SharedPlan(fileFilter, complete, made));
             return made;
@@ -268,7 +268,7 @@ public sealed class JsonDatasetReader : IDisposable, IAsyncDisposable
         {
             Dictionary<string, Field> has = new(StringComparer.Ordinal);
             foreach (Field field in _dataset.FileSchema.FieldsList) has.TryAdd(field.Name, field);
-            return new(has, _shape.ColumnsOf(has, path));
+            return new(has, _shape.ColumnsOf(has, path, index: 0));
         }
     }
 

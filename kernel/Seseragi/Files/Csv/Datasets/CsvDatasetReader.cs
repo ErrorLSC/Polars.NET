@@ -57,7 +57,7 @@ public sealed class CsvDatasetReader : IDisposable, IAsyncDisposable
         _dataset = dataset;
         _options = options;
         _indexed = options.RowIndexColumn is not null;
-        _shape = new DatasetShape(dataset.Options, dataset.Partitions, dataset.PartitionField, dataset.FileSchema, dataset.Files.Count,
+        _shape = new DatasetShape(dataset.Options, dataset.Partitions, dataset.PartitionField, dataset.FileSchema, dataset.Files,
             options.Columns, null, options.Filter, options.FilterRows, options.RowIndexColumn, views: true,
             PathOf, static (message, inner) => new CsvFormatException(message, inner));
         _read = _shape.Read;
@@ -242,7 +242,7 @@ public sealed class CsvDatasetReader : IDisposable, IAsyncDisposable
         {
             if (_dataset.FileSchema.GetFieldByName(name) is { } field) has.TryAdd(name, field);
         }
-        DatasetShape.FileColumns columns = _shape.ColumnsOf(has, PathOf(index));
+        DatasetShape.FileColumns columns = _shape.ColumnsOf(has, PathOf(index), index);
         var (fileFilter, complete) = _shape.FileFilter(index, columns.Missing, columns.Dropped, has);
         state.After = forceAfter || (FiltersExactly && _shape.FiltersAfter && !complete);
         return (columns.Lists[state.After ? 1 : 0].Columns, _options.FilterRows ? fileFilter : null);
@@ -456,7 +456,7 @@ public sealed class CsvDatasetReader : IDisposable, IAsyncDisposable
                     if (!state.CountOnly)
                     {
                         if (state.After) Interlocked.Increment(ref owner._filteredAfter);
-                        state.Converted = owner._shape.Conversions(reader.Schema, state.After, file.Path);
+                        state.Converted = owner._shape.Conversions(reader.Schema, state.After, file.Path, index);
                     }
                     return new FileSlot(owner, index, source, reader, state, gate);
                 }
