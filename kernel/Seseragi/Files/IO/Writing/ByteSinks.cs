@@ -24,20 +24,47 @@ internal abstract class ByteSink
     public virtual ValueTask CloseAsync(bool useAsync) => default;
 }
 
-/// <summary>A file of the writer's own: each batch's pieces written at once (one gathering write), in order.</summary>
-internal sealed class FileSink(string path) : ByteSink
+/// <summary>
+/// A file of the writer's own: each batch's pieces written at once (one gathering write), in order. An existing
+/// file's old bytes are cut off on a pool thread while the first rows are encoded (as <see cref="OverwrittenFile"/>
+/// does); the first write waits for it.
+/// </summary>
+internal sealed class FileSink : ByteSink
 {
-    private readonly Microsoft.Win32.SafeHandles.SafeFileHandle _file = File.OpenHandle(path, FileMode.Create, FileAccess.Write, FileShare.None);
+    private readonly Microsoft.Win32.SafeHandles.SafeFileHandle _file;
+    private Task? _truncation;
     private long _length;
+
+    public FileSink(string path)
+    {
+        _file = File.OpenHandle(path, FileMode.OpenOrCreate, FileAccess.Write, FileShare.None);
+        try
+        {
+            if (RandomAccess.GetLength(_file) > 0) _truncation = Task.Run(() => RandomAccess.SetLength(_file, 0));
+        }
+        catch (NotSupportedException)
+        {
+            // A device or a pipe: no bytes to cut.
+        }
+    }
+
+    private void Truncated()
+    {
+        if (_truncation is not { } truncation) return;
+        truncation.GetAwaiter().GetResult();
+        _truncation = null;
+    }
 
     public void WriteAll(IReadOnlyList<ReadOnlyMemory<byte>> buffers, long bytes)
     {
+        Truncated();
         RandomAccess.Write(_file, buffers, _length);
         _length += bytes;
     }
 
     public override ValueTask WriteAsync(ReadOnlyMemory<byte> utf8, bool useAsync, CancellationToken ct)
     {
+        Truncated();
         RandomAccess.Write(_file, utf8.Span, _length);
         _length += utf8.Length;
         return default;
@@ -45,6 +72,9 @@ internal sealed class FileSink(string path) : ByteSink
 
     public override ValueTask CloseAsync(bool useAsync)
     {
+        // Unwritten, the file is left empty (a failed truncation surfaced at the first write).
+        _truncation?.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing).GetAwaiter().GetResult();
+        _truncation = null;
         _file.Dispose();
         return default;
     }

@@ -393,7 +393,7 @@ public sealed class ParquetWriter : IAsyncDisposable, IDisposable
     public static ParquetWriter Create(string path, Apache.Arrow.Schema schema, ParquetWriteOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(schema);
-        var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None, 1, FileOptions.Asynchronous);
+        var stream = OverwrittenFile.Open(path);
         try
         {
             return new(stream, WritePlan.Create(schema, (options ?? new()) with { LeaveOpen = false }));

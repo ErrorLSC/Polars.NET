@@ -144,7 +144,7 @@ public sealed class ExcelWriter : IDisposable, IAsyncDisposable
     /// <summary>Creates (or overwrites) a file.</summary>
     public static ExcelWriter Create(string path, Schema schema, ExcelWriteOptions? options = null)
     {
-        var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None, 1 << 16, FileOptions.Asynchronous);
+        var stream = OverwrittenFile.Open(path, 1 << 16);
         try
         {
             return new(stream, schema, (options ?? new()) with { LeaveOpen = false });

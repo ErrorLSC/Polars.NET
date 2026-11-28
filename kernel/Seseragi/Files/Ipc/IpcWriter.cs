@@ -82,7 +82,7 @@ public sealed class IpcWriter : IDisposable, IAsyncDisposable
     public static IpcWriter Create(string path, Schema schema, IpcWriteOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(schema);
-        var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None, 1, FileOptions.Asynchronous);
+        var stream = OverwrittenFile.Open(path);
         try
         {
             return new(stream, schema, (options ?? new()) with { LeaveOpen = false });

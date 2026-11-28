@@ -248,15 +248,10 @@ internal abstract class ColumnWriter : IDisposable
         while (!def.IsEmpty)
         {
             // Whole rows, as many as the page has room for and a few thousand levels at most (the page's bytes are
-            // checked after each step, as the flat path checks them every 1024 rows).
-            int room = _settings.PageRows - _pageRows, levels = 0, rows = 0, values = 0, nulls = 0;
-            while (levels < def.Length && (rep[levels] != 0 || (rows < room && levels < LevelStep)))
-            {
-                if (rep[levels] == 0) rows++;
-                if (def[levels] == _maxDef) values++;
-                else nulls++;
-                levels++;
-            }
+            // checked after each step, as the flat path checks them every 1024 rows): rows start at repetition level
+            // 0, counted (and found) a vector at a time.
+            var (levels, rows) = Step(rep, _settings.PageRows - _pageRows);
+            int values = def[..levels].Count((byte)_maxDef), nulls = levels - values;
             EnsureLevels(levels);
             def[..levels].CopyTo(_pageDef.AsSpan(_pageLevels));
             if (_maxRep > 0) rep[..levels].CopyTo(_pageRep.AsSpan(_pageLevels));
@@ -272,7 +267,33 @@ internal abstract class ColumnWriter : IDisposable
     }
 
     /// <summary>The levels a step of <see cref="Write(ReadOnlySpan{byte}, ReadOnlySpan{byte}, IArrowArray?, ReadOnlySpan{int})"/> takes before the page's size is checked (a row is never split).</summary>
-    private const int LevelStep = 4096;
+    internal const int LevelStep = 4096;
+
+    /// <summary>
+    /// The levels (and rows) a step takes from <paramref name="rep"/>, which starts a row: the rows starting within
+    /// <see cref="LevelStep"/> levels, and the rest of the last one, unless that makes more than <paramref name="room"/>
+    /// rows, then up to the row past the room. A row with the levels left and no repetition is no row at all only for
+    /// a flat column, which never comes here.
+    /// </summary>
+    internal static (int Levels, int Rows) Step(ReadOnlySpan<byte> rep, int room)
+    {
+        int end = Math.Min(rep.Length, LevelStep);
+        int rows = rep[..end].Count((byte)0);
+        if (rows <= room)
+        {
+            // The last row goes on past the step's end until the next one starts.
+            int more = end == rep.Length ? -1 : rep[end..].IndexOf((byte)0);
+            return (more < 0 ? rep.Length : end + more, rows);
+        }
+        // The page fills within the step: up to the start of row room + 1.
+        int at = 0;
+        for (int row = 0; ; row++)
+        {
+            int next = rep[(at + 1)..].IndexOf((byte)0);
+            if (row + 1 == room || next < 0) return (next < 0 ? rep.Length : at + 1 + next, row + 1);
+            at += 1 + next;
+        }
+    }
 
     private void EnsureLevels(int more)
     {
@@ -685,19 +706,28 @@ internal abstract class ColumnWriter : IDisposable
                 counts[0] = _pageNulls;
                 counts[1] = _pageLevels - _pageNulls;
             }
-            else
-            {
-                counts.Clear();
-                foreach (byte level in _pageDef.AsSpan(0, _pageLevels)) counts[level]++;
-            }
+            else Count(_pageDef.AsSpan(0, _pageLevels), counts);
         }
         if (_repHistograms is not null)
         {
             _repHistograms.Grow(_repHistogramLength + _maxRep + 1, _repHistogramLength);
             Span<long> counts = _repHistograms.AsSpan(_repHistogramLength, _maxRep + 1);
             _repHistogramLength += _maxRep + 1;
+            Count(_pageRep.AsSpan(0, _pageLevels), counts);
+        }
+
+        // How many levels have each value: a vector pass per value for the few levels of most columns, else one pass.
+        static void Count(ReadOnlySpan<byte> levels, Span<long> counts)
+        {
+            if (counts.Length <= 8)
+            {
+                long rest = levels.Length;
+                for (int k = 1; k < counts.Length; k++) rest -= counts[k] = levels.Count((byte)k);
+                counts[0] = rest;
+                return;
+            }
             counts.Clear();
-            foreach (byte level in _pageRep.AsSpan(0, _pageLevels)) counts[level]++;
+            foreach (byte level in levels) counts[level]++;
         }
     }
 

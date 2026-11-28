@@ -120,7 +120,7 @@ public sealed class AvroWriter : IAsyncDisposable, IDisposable
     /// <summary>Creates (or overwrites) a file.</summary>
     public static AvroWriter Create(string path, Schema schema, AvroWriteOptions? options = null)
     {
-        var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None, 1, FileOptions.Asynchronous);
+        var stream = OverwrittenFile.Open(path);
         try
         {
             return new(stream, schema, (options ?? new()) with { LeaveOpen = false });
